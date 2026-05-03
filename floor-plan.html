@@ -1,0 +1,2565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Floor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f5f1ea;
+    --ink:#1a1714;
+    --muted:#6b6259;
+    --line:#cfc6b6;
+    --paper:#fbf8f1;
+    --open:#ffffff;
+    --seated:#c84a2a;
+    --seated-ink:#fff;
+    --shadow: 0 1px 0 rgba(0,0,0,.04), 0 6px 18px -10px rgba(0,0,0,.18);
+    --grid-size: 12px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Mono',monospace; overflow-x:hidden;}
+
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px; border-bottom:1px solid var(--line); background:var(--paper);
+    gap:12px; flex-wrap:wrap;
+  }
+  .left{display:flex; flex-direction:column; gap:2px;}
+  .brand{font-family:'Fraunces',serif; font-weight:700; font-size:20px; line-height:1;}
+  .date{font-size:12px; color:var(--muted); letter-spacing:.04em;}
+  .right{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .stats{font-size:12px; color:var(--muted);}
+  .btn{
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    font-family:inherit; font-size:11px; padding:6px 10px; border-radius:6px; cursor:pointer;
+  }
+  .btn.active{background:var(--ink); color:var(--paper); border-color:var(--ink);}
+  .btn.muted{color:var(--muted);}
+  .btn:disabled{opacity:.4; cursor:not-allowed;}
+
+  .floor-wrap{ padding:20px 12px; overflow:auto; }
+  .floor{
+    position:relative;
+    width: 900px;
+    height: 720px;
+    min-width: 900px;
+    min-height: 720px;
+    margin:0 auto;
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(rgba(0,0,0,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,.04) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    border:1px solid var(--line);
+    border-radius:8px;
+  }
+  .floor.editing{
+    background-image:
+      linear-gradient(rgba(0,0,0,.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,.10) 1px, transparent 1px);
+  }
+
+  .table{
+    position:absolute;
+    background:var(--open);
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow:var(--shadow);
+    cursor:pointer;
+    display:flex; flex-direction:column; justify-content:center; align-items:center;
+    font-family:inherit; color:inherit;
+    padding:4px;
+    user-select:none;
+    touch-action:none;
+  }
+  .editing .table{ cursor:grab; }
+  .editing .table.dragging{ cursor:grabbing; opacity:.8; z-index:50; box-shadow:0 12px 30px -10px rgba(0,0,0,.3); }
+  .num{font-family:'Fraunces',serif; font-size:18px; font-weight:700; line-height:1;}
+  .seats{font-size:10px; color:var(--muted); margin-top:3px;}
+  .table.seated{background:var(--seated); color:var(--seated-ink); border-color:var(--seated);}
+  .table.seated .seats{color:rgba(255,255,255,.85);}
+  .table.selected{outline:2px solid #2a6dc8; outline-offset:2px;}
+
+  .wall{
+    position:absolute;
+    background: var(--ink);
+    border-radius: 2px;
+    user-select:none;
+    touch-action:none;
+  }
+  .editing .wall{ cursor:grab; }
+  .editing .wall::before{
+    /* invisible hit area for easier tapping */
+    content:''; position:absolute;
+    top:-8px; bottom:-8px; left:-8px; right:-8px;
+  }
+  /* When selected, drop the hit area so it doesn't overlap the floating toolbar */
+  .editing .wall.selected::before{ display:none; }
+  .editing .wall:hover{ outline:1px dashed #2a6dc8; outline-offset:2px;}
+  .editing .wall.dragging{ cursor:grabbing; opacity:.8; z-index:50; }
+  .wall.selected{outline:2px solid #2a6dc8; outline-offset:3px;}
+
+  .wall-label{
+    position:absolute;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px; font-weight:600;
+    color:var(--ink); background:var(--paper);
+    padding:1px 5px; border-radius:3px;
+    border:1px solid var(--line);
+    pointer-events:none;
+    z-index:5;
+    letter-spacing:.04em;
+  }
+
+  /* Resize handles - only show in edit mode */
+  .handle{
+    position:absolute;
+    width:14px; height:14px;
+    background:#2a6dc8;
+    border:2px solid #fff;
+    border-radius:50%;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    z-index:60;
+    touch-action:none;
+  }
+  .handle.h-end{ cursor:ew-resize; }
+  .handle.v-end{ cursor:ns-resize; }
+
+  /* Action toolbar that floats next to selected item */
+  .actions{
+    position:absolute;
+    z-index:70;
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:4px;
+    box-shadow:0 6px 18px -8px rgba(0,0,0,.3);
+    max-width: 280px;
+  }
+  .actions button{
+    border:none; background:transparent; cursor:pointer;
+    padding:6px 10px; font-family:inherit; font-size:12px; color:var(--ink);
+    border-radius:4px;
+    white-space:nowrap;
+  }
+  .actions button:hover{background:#f0ece2;}
+  .actions button.danger{color:#a83218;}
+
+  .hint{
+    text-align:center; font-size:11px; color:var(--muted); padding:6px;
+  }
+  .add-bar{
+    display:flex; gap:6px; justify-content:center; padding:6px; background:var(--paper);
+    border-bottom:1px solid var(--line);
+    flex-wrap:wrap;
+  }
+  .add-bar.hidden{display:none;}
+
+  /* Waitlist drawer */
+  .wait-overlay{
+    position:fixed; inset:0; background:rgba(20,15,10,.4);
+    display:none; z-index:80;
+  }
+  .wait-overlay.show{display:block;}
+  .wait-panel{
+    position:fixed; top:0; right:0; bottom:0; width:min(420px, 100%);
+    background:var(--paper); box-shadow:-12px 0 40px rgba(0,0,0,.2);
+    z-index:90; transform:translateX(100%); transition:transform .25s ease;
+    display:flex; flex-direction:column;
+  }
+  .wait-panel.show{transform:translateX(0);}
+  .wait-head{
+    padding:14px 18px; border-bottom:1px solid var(--line); background:#fff;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .wait-head h2{margin:0; font-family:'Fraunces',serif; font-weight:700; font-size:20px;}
+  .wait-close{
+    border:none; background:transparent; font-size:22px; color:var(--muted); cursor:pointer; padding:4px 8px;
+  }
+  .wait-form{
+    padding:12px 18px; border-bottom:1px solid var(--line); background:#fff;
+    display:flex; gap:6px;
+  }
+  .wait-form input{
+    border:1px solid var(--line); background:#fff; padding:9px 10px;
+    border-radius:6px; font-family:inherit; font-size:14px; color:var(--ink);
+  }
+  .wait-form input.name{flex:1; min-width:0;}
+  .wait-form input.size{width:58px; text-align:center;}
+  .wait-form button{
+    border:none; background:var(--ink); color:var(--paper); padding:0 14px;
+    border-radius:6px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  .wait-list{
+    flex:1; overflow-y:auto; padding:8px 12px 24px;
+  }
+  .wait-row{
+    display:flex; align-items:center; gap:10px; padding:12px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  .wait-row .info{flex:1; min-width:0;}
+  .wait-row .name{font-weight:600; font-size:15px; color:var(--ink);}
+  .wait-row .meta{font-size:11px; color:var(--muted); margin-top:2px;}
+  .wait-row .actions-r{display:flex; gap:4px;}
+  .wait-row .actions-r button{
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    font-family:inherit; font-size:11px; padding:6px 8px; border-radius:5px; cursor:pointer;
+  }
+  .wait-row .actions-r button.primary{background:var(--ink); color:var(--paper); border-color:var(--ink);}
+  .wait-row .actions-r button.warn{color:#a83218;}
+  .wait-row.done .name{text-decoration:line-through; color:var(--muted);}
+  .wait-row.done .meta{color:var(--muted);}
+  .wait-row.no-show .name{text-decoration:line-through; color:#a83218;}
+  .wait-row.left .name{text-decoration:line-through; color:#7a6b3f;}
+
+  .wait-empty{
+    text-align:center; padding:40px 20px; color:var(--muted);
+    font-style:italic; font-size:13px;
+  }
+  .wait-section-label{
+    font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;
+    padding:14px 10px 6px;
+  }
+
+  /* Reservation form (multi-row) */
+  .res-form{
+    padding:14px 18px; border-bottom:1px solid var(--line); background:#fff;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .res-form input{
+    width:100%; border:1px solid var(--line); background:#fff; padding:9px 10px;
+    border-radius:6px; font-family:inherit; font-size:14px; color:var(--ink);
+  }
+  .res-form select, .res-form textarea{
+    width:100%; border:1px solid var(--line); background:#fff; padding:9px 10px;
+    border-radius:6px; font-family:inherit; font-size:14px; color:var(--ink);
+    resize:vertical;
+  }
+  .res-form select{appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%236b6259' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat:no-repeat; background-position:right 12px center; padding-right:30px;
+  }
+  .res-form-row{display:flex; gap:6px;}
+  .res-form-row input{flex:1; min-width:0;}
+  .res-form button{
+    border:none; background:var(--ink); color:var(--paper); padding:10px;
+    border-radius:6px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer;
+    margin-top:2px;
+  }
+  .res-day{
+    font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em;
+    padding:14px 10px 4px; border-top:1px solid var(--line); margin-top:4px;
+  }
+  .res-day:first-child{border-top:none; margin-top:0;}
+  .res-tag{
+    display:inline-block; font-size:10px; padding:2px 7px; border-radius:999px;
+    background:#fff3df; color:#7a5c1a; border:1px solid #e6d3a0; margin-left:6px;
+    text-transform:uppercase; letter-spacing:.04em; font-weight:500;
+  }
+  .res-tag.birthday{background:#ffe1ec; color:#9c2659; border-color:#f4b4ce;}
+  .res-tag.anniversary{background:#e8dffe; color:#5a3aa3; border-color:#c9b9f0;}
+  .res-tag.business{background:#deecf8; color:#1f5a87; border-color:#a8cbe7;}
+  .res-tag.event{background:#dff4e2; color:#1f6b3b; border-color:#a8d8b5;}
+  .res-note{
+    font-size:11px; color:var(--ink); background:#fbf3df; border-left:2px solid #d4a13a;
+    padding:4px 8px; margin-top:6px; border-radius:3px;
+  }
+
+  /* Edit reservation modal */
+  .edit-modal{
+    position:fixed; inset:0; background:rgba(20,15,10,.5);
+    display:none; align-items:center; justify-content:center; z-index:100;
+    padding:16px;
+  }
+  .edit-modal.show{display:flex;}
+  .edit-modal .box{
+    background:var(--paper); border-radius:12px; width:100%; max-width:420px;
+    padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.3);
+    max-height:90vh; overflow-y:auto;
+  }
+  .edit-modal h2{margin:0 0 12px; font-family:'Fraunces',serif; font-weight:700; font-size:20px;}
+  .edit-modal .field{margin-bottom:10px;}
+  .edit-modal label{
+    display:block; font-size:11px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px;
+  }
+  .edit-modal input, .edit-modal select, .edit-modal textarea{
+    width:100%; border:1px solid var(--line); background:#fff; padding:9px 10px;
+    border-radius:6px; font-family:inherit; font-size:14px; color:var(--ink);
+  }
+  .edit-modal textarea{resize:vertical;}
+  .edit-modal select{appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%236b6259' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat:no-repeat; background-position:right 12px center; padding-right:30px;
+  }
+  .edit-modal .row2{display:flex; gap:6px;}
+  .edit-modal .row2 .field{flex:1;}
+  .edit-modal .actions-bottom{display:flex; gap:6px; margin-top:12px;}
+  .edit-modal .actions-bottom button{
+    flex:1; border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:11px; border-radius:8px; font-family:inherit; font-size:14px; font-weight:500; cursor:pointer;
+  }
+  .edit-modal .actions-bottom button.primary{background:var(--ink); color:var(--paper); border-color:var(--ink);}
+
+  /* Move mode — open tables get a pulsing highlight */
+  .floor.move-mode .table:not(.seated){
+    cursor:pointer;
+    box-shadow: 0 0 0 3px #2a6dc8, var(--shadow);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 3px #2a6dc8, var(--shadow); }
+    50%      { box-shadow: 0 0 0 5px #2a6dc8, var(--shadow); }
+  }
+  .floor.move-mode .table.seated{ opacity:.4; }
+
+  /* Join mode — empty tables get a green pulsing highlight */
+  .floor.join-mode .table:not(.seated){
+    cursor:pointer;
+    box-shadow: 0 0 0 3px #2bb673, var(--shadow);
+    animation: pulse-green 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 0 3px #2bb673, var(--shadow); }
+    50%      { box-shadow: 0 0 0 5px #2bb673, var(--shadow); }
+  }
+  .floor.join-mode .table.seated{ opacity:.4; }
+
+  /* Snap-to-join preview while dragging — dashed outlines on both tables */
+  .table.snap-hover{
+    outline: 2px dashed #2bb673 !important;
+    outline-offset: 4px;
+    transition: outline .1s ease;
+  }
+  .table.snap-source{
+    outline: 2px dashed #2bb673 !important;
+    outline-offset: 4px;
+  }
+
+  /* Joined tables — show a clear dividing line down the middle */
+  .table.joined::after{
+    content:''; position:absolute; top:8px; bottom:8px;
+    left: var(--split-pos, 50%); width:2px; background:var(--ink);
+    opacity:.25; pointer-events:none;
+    transform:translateX(-1px);
+  }
+  .table.joined.seated::after{ background:rgba(255,255,255,.6); opacity:1; }
+
+  /* Section colors for waiters */
+  .section-1{ --sec:#5b8def; }
+  .section-2{ --sec:#2bb673; }
+  .section-3{ --sec:#e89c2a; }
+  .section-4{ --sec:#a14ad6; }
+
+  .table.has-section{
+    box-shadow:
+      0 0 0 3px var(--sec),
+      var(--shadow);
+    border-color: var(--sec);
+  }
+  .table.has-section.seated{
+    background: var(--seated);
+    border-color: var(--seated);
+    box-shadow:
+      0 0 0 3px var(--sec),
+      var(--shadow);
+  }
+  .table .waiter-tag{
+    position:absolute; top:2px; right:4px;
+    font-size:9px; font-weight:600; color: var(--sec);
+    text-transform:uppercase; letter-spacing:.04em;
+  }
+  .table.seated .waiter-tag{ color: rgba(255,255,255,.95); }
+  .table{ position:absolute; }
+
+  /* Sections setup modal */
+  .sections-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px;
+  }
+  .sections-grid button{
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:14px; border-radius:8px; font-family:inherit; font-size:14px; font-weight:500;
+    cursor:pointer;
+  }
+  .sections-grid button.active{background:var(--ink); color:var(--paper); border-color:var(--ink);}
+
+  .waiter-row{
+    display:flex; align-items:center; gap:10px; padding:8px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .waiter-row:last-child{border-bottom:none;}
+  .waiter-swatch{
+    width:24px; height:24px; border-radius:6px; flex-shrink:0;
+  }
+  .waiter-row select{
+    flex:1; border:1px solid var(--line); background:#fff; padding:7px 10px;
+    border-radius:6px; font-family:inherit; font-size:14px; color:var(--ink);
+    appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%236b6259' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat:no-repeat; background-position:right 12px center; padding-right:30px;
+  }
+  .waiter-row .label{
+    font-size:12px; color:var(--muted); min-width:70px;
+  }
+  .section-summary{
+    font-size:11px; color:var(--muted); padding:4px 0 8px;
+  }
+  .section-clear{
+    background:transparent; border:1px solid var(--line); color:var(--muted);
+    padding:8px; border-radius:6px; font-family:inherit; font-size:12px; cursor:pointer;
+    width:100%; margin-top:6px;
+  }
+
+  /* Waiter scoreboard */
+  .scoreboard{
+    display:flex; gap:8px; padding:10px 14px;
+    background:var(--paper); border-bottom:1px solid var(--line);
+    overflow-x:auto;
+  }
+  .scoreboard.hidden{display:none;}
+  .score-card{
+    display:flex; align-items:center; gap:8px;
+    padding:6px 12px; border-radius:8px; background:#fff;
+    border:2px solid var(--sec); flex-shrink:0;
+  }
+  .score-card .swatch{
+    width:10px; height:10px; border-radius:3px; background:var(--sec);
+  }
+  .score-card .name{ font-weight:600; font-size:13px; }
+  .score-card .count{
+    font-family:'Fraunces',serif; font-weight:700; font-size:18px;
+    color:var(--sec); margin-left:4px;
+  }
+  .score-card .open-count{
+    font-size:11px; color:var(--muted); margin-left:6px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="left">
+    <div class="brand">Dining Floor</div>
+    <div class="date" id="date">—</div>
+  </div>
+  <div class="right">
+    <span class="stats" id="stats">—</span>
+    <button class="btn" id="undoBtn" disabled>Undo</button>
+    <button class="btn" id="sectionsBtn">Sections</button>
+    <button class="btn" id="waitBtn">Waitlist <span id="waitCount" class="muted"></span></button>
+    <button class="btn" id="resBtn">Reservations <span id="resCount" class="muted"></span></button>
+    <button class="btn" id="editBtn">Edit layout</button>
+    <button class="btn muted" id="reset">Clear all</button>
+  </div>
+</header>
+
+<div class="add-bar hidden" id="addBar">
+  <button class="btn" data-add="table-4">+ 4-top table</button>
+  <button class="btn" data-add="table-6h">+ 6-top (wide)</button>
+  <button class="btn" data-add="table-6v">+ 6-top (tall)</button>
+  <button class="btn" data-add="wall-h">+ Wall (horizontal)</button>
+  <button class="btn" data-add="wall-v">+ Wall (vertical)</button>
+</div>
+
+<div class="hint" id="hint">Tap a table to seat / clear.</div>
+<div class="scoreboard hidden" id="scoreboard"></div>
+<div class="floor-wrap">
+  <div class="floor" id="floor"></div>
+</div>
+
+<div class="wait-overlay" id="waitOverlay"></div>
+<aside class="wait-panel" id="waitPanel">
+  <div class="wait-head">
+    <h2>Waitlist</h2>
+    <button class="wait-close" id="waitClose">×</button>
+  </div>
+  <div class="wait-form">
+    <input class="name" id="wName" placeholder="Guest name" />
+    <input class="size" id="wSize" type="number" min="1" placeholder="#" />
+    <button id="wAdd">Add</button>
+  </div>
+  <div class="wait-list" id="waitList"></div>
+</aside>
+
+<div class="wait-overlay" id="resOverlay"></div>
+<aside class="wait-panel" id="resPanel">
+  <div class="wait-head">
+    <h2>Reservations</h2>
+    <button class="wait-close" id="resClose">×</button>
+  </div>
+  <div class="res-form">
+    <input id="rName" placeholder="Guest name" />
+    <div class="res-form-row">
+      <input id="rPhone" placeholder="Phone number" type="tel" />
+      <input id="rSize" type="number" min="1" placeholder="# guests" />
+    </div>
+    <div class="res-form-row">
+      <input id="rDate" type="date" />
+      <input id="rTime" type="time" />
+    </div>
+    <select id="rReason">
+      <option value="">Reason (optional)</option>
+      <option value="Birthday">Birthday</option>
+      <option value="Anniversary">Anniversary</option>
+      <option value="Business">Business</option>
+      <option value="Event">Event</option>
+      <option value="Other">Other</option>
+    </select>
+    <textarea id="rNote" placeholder="Note (optional) — allergies, seating, etc." rows="2"></textarea>
+    <button id="rAdd">Add reservation</button>
+  </div>
+  <div class="wait-list" id="resList"></div>
+</aside>
+
+<div class="edit-modal" id="editResModal">
+  <div class="box">
+    <h2>Edit reservation</h2>
+    <div class="field">
+      <label>Guest name</label>
+      <input id="editResName" />
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Phone</label>
+        <input id="editResPhone" type="tel" />
+      </div>
+      <div class="field">
+        <label># Guests</label>
+        <input id="editResSize" type="number" min="1" />
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Date</label>
+        <input id="editResDate" type="date" />
+      </div>
+      <div class="field">
+        <label>Time</label>
+        <input id="editResTime" type="time" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Reason</label>
+      <select id="editResReason">
+        <option value="">— None —</option>
+        <option value="Birthday">Birthday</option>
+        <option value="Anniversary">Anniversary</option>
+        <option value="Business">Business</option>
+        <option value="Event">Event</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Note</label>
+      <textarea id="editResNote" rows="3"></textarea>
+    </div>
+    <div class="actions-bottom">
+      <button id="editResCancel">Cancel</button>
+      <button id="editResSave" class="primary">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-modal" id="sectionsModal">
+  <div class="box">
+    <h2>Assign sections</h2>
+    <p style="margin:0 0 12px;color:var(--muted);font-size:12px;">
+      Pick how many waiters are on, then assign each section.
+    </p>
+    <div class="sections-grid">
+      <button data-shift="2">2 waiters</button>
+      <button data-shift="3">3 waiters</button>
+      <button data-shift="4">4 waiters</button>
+    </div>
+    <div id="waiterAssignments"></div>
+    <div class="section-summary" id="sectionSummary"></div>
+    <button class="section-clear" id="clearSections">Clear all assignments</button>
+    <div class="actions-bottom">
+      <button id="sectionsCancel">Cancel</button>
+      <button id="sectionsSave" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+  Real-world scale: 2 pixels per inch.
+  Table sizes (W x H in pixels):
+    Small booth (4-top, 48"x30"):   96 x 60
+    Large booth (6-top, 72"x30"):   144 x 60
+    Regular 4-top (46"x30"):        92 x 60
+    6-top table (81"x27"):          162 x 54
+    8-top table (96"x30"):          192 x 60
+
+  Room sizes (in pixels):
+    Room 1 (above W1):   560 x 608
+    Room 2 (below W1):   608 x 704
+    Hallway:             256 x 640
+    Room 3 (right side): 264 x 640
+
+  Layout origin: 24,24 (small floor margin).
+  Room 1 spans x: 24-584, y: 24-632
+  W1 (horizontal wall): runs across just below room 1 at y ≈ 640
+  Room 2 spans x: 24-632, y: 656-1360
+  W3 (vertical hallway wall): around x: 656
+  Hallway: x: 660-916, y: 24-664
+  Room 3: x: 920-1184, y: 24-664
+*/
+
+const DEFAULT_TABLES = [
+  // ═══════ Room 1 (top dining): inside x:24-580, y:24-628 ═══════
+  // Left column: 16 (large booth) at top, then 15, 14 small booths down the wall
+  {id:16, x: 36,  y: 36,  w:144, h:60,  s:6}, // large booth horizontal at top
+  {id:15, x: 36,  y:108,  w:96,  h:60,  s:4},
+  {id:14, x: 36,  y:180,  w:96,  h:60,  s:4},
+
+  // Second column: large booth 27, then 6-tops 26 + 25, then small booth 24
+  {id:27, x:188,  y: 36,  w:144, h:60,  s:6},
+  {id:26, x:188,  y:108,  w:162, h:54,  s:6, joined:true, parts:['26a','26b'], splitRatio:1/3, partSeats:[2,4]},
+  {id:25, x:188,  y:172,  w:162, h:54,  s:6, joined:true, parts:['25a','25b'], splitRatio:2/3, partSeats:[4,2]},
+  {id:24, x:188,  y:240,  w:96,  h:60,  s:4},
+
+  // Third column: large booth 34, 8-top 33 in middle
+  {id:34, x:360,  y: 36,  w:144, h:60,  s:6},
+  {id:33, x:340,  y:172,  w:192, h:60,  s:8, joined:true, parts:['33a','33b']},
+
+  // Fourth column: large booths 46, 45, 44 stacked
+  {id:46, x:430,  y:108,  w:144, h:60,  s:6},
+  {id:45, x:430,  y:252,  w:144, h:60,  s:6},
+  {id:44, x:430,  y:324,  w:144, h:60,  s:6},
+
+  // ═══════ Room 2 (bottom dining): inside x:24-628, y:632-1336 ═══════
+  // Left wall: 13, 12, 11, 10 stacked, with 10 touching W2 (at y:1336) at the bottom
+  {id:13, x: 36,  y:1096, w:96,  h:60,  s:4},
+  {id:12, x: 36,  y:1156, w:96,  h:60,  s:4},
+  {id:11, x: 36,  y:1216, w:96,  h:60,  s:4},
+  {id:10, x: 36,  y:1276, w:96,  h:60,  s:4},
+
+  // Second column: large booth 21 (top), small booth 20
+  {id:21, x:188,  y:660,  w:144, h:60,  s:6},
+  {id:20, x:188,  y:732,  w:96,  h:60,  s:4},
+
+  // Third column: large booth 31, small booth 30
+  {id:31, x:360,  y:660,  w:144, h:60,  s:6},
+  {id:30, x:360,  y:732,  w:96,  h:60,  s:4},
+
+  // Center-right: 8-top 43 and large booth 41
+  {id:43, x:340,  y:840,  w:192, h:60,  s:8, joined:true, parts:['43a','43b']},
+  {id:41, x:360,  y:912,  w:144, h:60,  s:6},
+
+  // ═══════ Bar area (below W2): horizontal, x:24-696, y:1340-1548 ═══════
+  {id:'Bar 1', x: 80, y:1410, w:92, h:60, s:4},
+  {id:'Bar 2', x: 220, y:1410, w:92, h:60, s:4},
+
+  // ═══════ Hallway: inside x:584-836, y:24-660 ═══════
+  // Just table 50, single 4-top, centered horizontally
+  {id:50, x:660,  y:300,  w:92,  h:60,  s:4},
+
+  // ═══════ Room 3 (right side): inside x:840-1100, y:24-660 ═══════
+  // Top row: 61 and 82
+  {id:61, x:856,  y: 80,  w:92,  h:60,  s:4},
+  {id:82, x:996,  y: 80,  w:92,  h:60,  s:4},
+  // 6-top table 81 in the middle
+  {id:81, x:912,  y:180,  w:162, h:54,  s:6},
+  // Middle row: 60 and 80
+  {id:60, x:856,  y:280,  w:92,  h:60,  s:4},
+  {id:80, x:996,  y:280,  w:92,  h:60,  s:4},
+  // Bottom: 70
+  {id:70, x:856,  y:380,  w:92,  h:60,  s:4},
+];
+
+const DEFAULT_WALLS = [
+  // ─────── Room 1 (top dining): 560 x 608 ───────
+  // top wall
+  {id:'r1-top',    x: 24,  y: 24,   w:560, h:4},
+  // left wall
+  {id:'r1-left',   x: 24,  y: 24,   w:4,   h:608},
+  // right wall (also separates Room 1 from hallway)
+  {id:'r1-right',  x:580,  y: 24,   w:4,   h:608},
+  // bottom wall (this is W1 — divides Room 1 from Room 2)
+  {id:'w1',        x: 24,  y:628,   w:560, h:4},
+
+  // ─────── Room 2 (bottom dining): 608 x 704 ───────
+  // top wall is shared with Room 1 bottom (W1) above; Room 2 starts where W1 ends
+  // left wall
+  {id:'r2-left',   x: 24,  y:632,   w:4,   h:704},
+  // right wall (extends past Room 1's right since Room 2 is wider)
+  {id:'r2-right',  x:628,  y:632,   w:4,   h:704},
+  // W2 (horizontal divider that forms the south wall of Room 2 / north wall of bar area)
+  {id:'w2',        x: 24,  y:1336,  w:608, h:4},
+
+  // ─────── Bar area (below Room 2, horizontal): 672 x 208 ───────
+  // 21 tiles wide (672px) × 6.5 tiles tall (208px)
+  // left wall (continues straight down from Room 2's left wall)
+  {id:'bar-left',  x: 24,  y:1340,  w:4,   h:208},
+  // right wall (extends past Room 2's right since bar is wider)
+  {id:'bar-right', x:692,  y:1340,  w:4,   h:208},
+  // bottom wall
+  {id:'bar-bot',   x: 24,  y:1544,  w:672, h:4},
+
+  // ─────── Hallway: 256 x 640 ───────
+  // left wall (also right wall of Room 1) — at x:580 already drawn
+  // right wall (also left wall of Room 3) — also serves as W3
+  {id:'w3',        x:836,  y: 24,   w:4,   h:640},
+  // top wall
+  {id:'hw-top',    x:580,  y: 24,   w:260, h:4},
+  // bottom wall
+  {id:'hw-bot',    x:580,  y:660,   w:260, h:4},
+
+  // ─────── Room 3 (right side): 264 x 640 ───────
+  // left wall (also right wall of hallway = W3)
+  // right wall — also W4
+  {id:'w4',        x:1100, y: 24,   w:4,   h:640},
+  // top wall
+  {id:'r3-top',    x:836,  y: 24,   w:268, h:4},
+  // bottom wall
+  {id:'r3-bot',    x:836,  y:660,   w:268, h:4},
+];
+
+let state = { tables: [], walls: [], seated: [], waitlist: [], reservations: [], sections: { shiftSize: 0, assignments: {} }, seatedBy: {} };
+let editing = false;
+let selected = null; // {kind:'table'|'wall', id}
+const STORAGE_KEY = 'floor-dnd-v20';
+
+async function load(){
+  try{
+    const r = await window.storage.get(STORAGE_KEY);
+    if(r && r.value){
+      state = JSON.parse(r.value);
+      state.tables ||= []; state.walls ||= []; state.seated ||= []; state.waitlist ||= []; state.reservations ||= [];
+      state.sections ||= { shiftSize: 0, assignments: {} };
+      state.sections.assignments ||= {};
+      state.seatedBy ||= {};
+      // Migration: ensure 33 and 43 are flagged as joined (8-tops made of two 4-tops)
+      const t33 = state.tables.find(t => String(t.id) === '33');
+      if(t33 && !t33.joined){ t33.joined = true; t33.parts = ['33a','33b']; }
+      const t43 = state.tables.find(t => String(t.id) === '43');
+      if(t43 && !t43.joined){ t43.joined = true; t43.parts = ['43a','43b']; }
+      // Migration: table 26 is a 6-top split into a 2-top (left 1/3) and a 4-top (right 2/3)
+      const t26 = state.tables.find(t => String(t.id) === '26');
+      if(t26 && !t26.joined){
+        t26.joined = true;
+        t26.parts = ['26a','26b'];
+        t26.splitRatio = 1/3; // first piece gets 1/3 of the width (2-top), second gets 2/3 (4-top)
+        t26.partSeats = [2, 4];
+      }
+      // Migration: table 25 is a 6-top split into a 4-top (left 2/3) and a 2-top (right 1/3)
+      const t25 = state.tables.find(t => String(t.id) === '25');
+      if(t25 && !t25.joined){
+        t25.joined = true;
+        t25.parts = ['25a','25b'];
+        t25.splitRatio = 2/3; // first piece gets 2/3 of the width (4-top), second gets 1/3 (2-top)
+        t25.partSeats = [4, 2];
+      }
+      // One-time fixup: 25 and 26 had their split orientations reversed in a previous migration
+      // Force the correct values regardless of whether they were already joined.
+      const t25fix = state.tables.find(t => String(t.id) === '25');
+      if(t25fix && t25fix.splitRatio !== 2/3){
+        t25fix.joined = true;
+        t25fix.parts = ['25a','25b'];
+        t25fix.splitRatio = 2/3;
+        t25fix.partSeats = [4, 2];
+      }
+      const t26fix = state.tables.find(t => String(t.id) === '26');
+      if(t26fix && t26fix.splitRatio !== 1/3){
+        t26fix.joined = true;
+        t26fix.parts = ['26a','26b'];
+        t26fix.splitRatio = 1/3;
+        t26fix.partSeats = [2, 4];
+      }
+      // Fixup: tables 33 and 43 are 8-tops
+      const t33s = state.tables.find(t => String(t.id) === '33');
+      if(t33s && t33s.s !== 8) t33s.s = 8;
+      const t43s = state.tables.find(t => String(t.id) === '43');
+      if(t43s && t43s.s !== 8) t43s.s = 8;
+      // one-time fixup: rename 23 back to 33 if it exists from the previous edit
+      const t23 = state.tables.find(t=>String(t.id)==='23');
+      if(t23 && !state.tables.find(t=>String(t.id)==='33')) t23.id = 33;
+    }
+  }catch(e){}
+  if(!state.tables.length) state.tables = JSON.parse(JSON.stringify(DEFAULT_TABLES));
+  if(!state.walls.length)  state.walls  = JSON.parse(JSON.stringify(DEFAULT_WALLS));
+}
+async function save(){
+  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+}
+
+/* =========================================================
+   UNDO HISTORY
+   ========================================================= */
+const UNDO_LIMIT = 30;
+const undoStack = [];
+let suspendUndo = false;
+
+function snapshot(){
+  // Deep clone of state
+  return JSON.parse(JSON.stringify(state));
+}
+
+// Wrap save() so every save pushes a snapshot of the PREVIOUS state to undo.
+// We capture the snapshot just before the mutation, but practically the cleanest
+// place is to do it RIGHT BEFORE the mutation. Since save() is called after the
+// mutation, we need a different approach: a `commit` function that snapshots
+// first, then mutates, then saves.
+function commit(mutateFn, label){
+  if(!suspendUndo){
+    undoStack.push({state: snapshot(), label: label || ''});
+    if(undoStack.length > UNDO_LIMIT) undoStack.shift();
+    updateUndoButton();
+  }
+  mutateFn();
+  save();
+}
+
+function undo(){
+  if(undoStack.length === 0) return;
+  const prev = undoStack.pop();
+  state = prev.state;
+  // Reset transient UI state
+  movingFromId = null;
+  joiningFromId = null;
+  closeTablePopup();
+  selected = null;
+  save();
+  render();
+  updateUndoButton();
+}
+
+function updateUndoButton(){
+  const btn = document.getElementById('undoBtn');
+  if(!btn) return;
+  btn.disabled = undoStack.length === 0;
+}
+
+function pushUndo(label){
+  if(suspendUndo) return;
+  undoStack.push({state: snapshot(), label: label || ''});
+  if(undoStack.length > UNDO_LIMIT) undoStack.shift();
+  updateUndoButton();
+}
+
+const $ = s => document.querySelector(s);
+
+function setDate(){
+  const d = new Date();
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  $('#date').textContent = `${days[d.getDay()]} ${months[d.getMonth()]} ${d.getDate()}`;
+}
+
+const SNAP = 12;
+const snap = v => Math.round(v / SNAP) * SNAP;
+
+function findTable(id){ return state.tables.find(t=>String(t.id)===String(id)); }
+function findWall(id){ return state.walls.find(w=>String(w.id)===String(id)); }
+
+function uniqueTableId(base){
+  if(!findTable(base)) return base;
+  // numeric copy: if base is a number, try number+100, etc.
+  if(typeof base === 'number'){
+    let n = base + 100;
+    while(findTable(n)) n += 100;
+    return n;
+  }
+  // string copy: append (2), (3), ...
+  let i = 2;
+  while(findTable(`${base} (${i})`)) i++;
+  return `${base} (${i})`;
+}
+function uniqueWallId(){
+  let i = state.walls.length + 1;
+  while(findWall('w'+i)) i++;
+  return 'w'+i;
+}
+
+function isSeated(id){
+  return state.seated.some(x => String(x) === String(id));
+}
+
+function seatTable(id, waiterOverride){
+  pushUndo('seat');
+  if(!isSeated(id)) state.seated.push(id);
+  // Auto-attribute to waiter — sectioned table -> that waiter; otherwise prompt or override
+  const sectionWaiter = tableWaiter(id);
+  if(sectionWaiter){
+    state.seatedBy[String(id)] = sectionWaiter;
+  } else if(waiterOverride){
+    state.seatedBy[String(id)] = waiterOverride;
+  }
+  save(); render();
+}
+
+function clearTable(id){
+  pushUndo('clear');
+  const i = state.seated.findIndex(x => String(x) === String(id));
+  if(i >= 0) state.seated.splice(i, 1);
+  delete state.seatedBy[String(id)];
+  save(); render();
+}
+
+function moveParty(fromId, toId){
+  if(!isSeated(fromId)) return;
+  if(isSeated(toId)){
+    alert('That table is already occupied.');
+    return;
+  }
+  pushUndo('move');
+  // Carry over the waiter attribution unless the new table is in a different section
+  const fromWaiter = state.seatedBy[String(fromId)] || tableWaiter(fromId);
+  const toSectionWaiter = tableWaiter(toId);
+  // Remove from old
+  const i = state.seated.findIndex(x => String(x) === String(fromId));
+  if(i >= 0) state.seated.splice(i, 1);
+  delete state.seatedBy[String(fromId)];
+  // Add to new
+  state.seated.push(toId);
+  // If the new table is in someone else's section, that waiter takes over.
+  // Otherwise (open table or same section), keep the original waiter.
+  if(toSectionWaiter){
+    state.seatedBy[String(toId)] = toSectionWaiter;
+  } else if(fromWaiter){
+    state.seatedBy[String(toId)] = fromWaiter;
+  }
+  save(); render();
+}
+
+function handleTableTap(id){
+  // If in move mode, treat this as the destination
+  if(movingFromId !== null){
+    if(String(movingFromId) === String(id)){
+      closeTablePopup();
+      return;
+    }
+    moveParty(movingFromId, id);
+    closeTablePopup();
+    return;
+  }
+  // If in join mode, treat this as the partner to fuse with
+  if(joiningFromId !== null){
+    if(String(joiningFromId) === String(id)){
+      closeTablePopup();
+      return;
+    }
+    joinTwoTables(joiningFromId, id);
+    closeTablePopup();
+    return;
+  }
+  closeTablePopup();
+  if(isSeated(id)){
+    openTablePopup(id);
+  } else {
+    openEmptyTablePopup(id);
+  }
+}
+
+function positionPopup(popup, t){
+  $('#floor').appendChild(popup);
+  // Now measure and reposition
+  const popW = popup.offsetWidth;
+  const popH = popup.offsetHeight;
+  const floor = document.getElementById('floor');
+  const floorW = floor.clientWidth;
+  const floorH = floor.clientHeight;
+
+  let left = t.x + t.w/2 - popW/2;
+  let top  = t.y - popH - 6;
+
+  if(top < 4) top = t.y + t.h + 6;       // not enough room above → put below
+  if(top + popH > floorH) top = Math.max(4, floorH - popH - 4);
+  left = Math.max(4, Math.min(left, floorW - popW - 4));
+
+  popup.style.left = left + 'px';
+  popup.style.top  = top  + 'px';
+}
+
+function openEmptyTablePopup(id){
+  const t = findTable(id);
+  if(!t) return;
+  const popup = document.createElement('div');
+  popup.id = 'tablePopup';
+  popup.className = 'actions';
+  let extraBtn = '';
+  if(t.joined){
+    extraBtn = `<button data-popup="split">Split</button>`;
+  } else if(t.canRejoinWith || (t.originalJoined && t.originalJoined.id !== undefined)){
+    extraBtn = `<button data-popup="rejoin">Rejoin</button>`;
+  }
+  popup.innerHTML = `
+    <button data-popup="seat" class="primary" style="background:var(--ink);color:var(--paper);">Seat</button>
+    ${extraBtn}
+    <button data-popup="join">Join…</button>
+  `;
+  positionPopup(popup, t);
+  popup.querySelector('[data-popup="seat"]').onclick = (e) => {
+    e.stopPropagation();
+    closeTablePopup();
+    const sectionWaiter = tableWaiter(id);
+    const shiftSize = state.sections.shiftSize;
+    const activeWaiters = Object.values(state.sections.assignments).filter(Boolean);
+    if(sectionWaiter || !shiftSize || activeWaiters.length === 0){
+      seatTable(id);
+    } else {
+      openWaiterPicker(id, activeWaiters);
+    }
+  };
+  const splitBtn = popup.querySelector('[data-popup="split"]');
+  if(splitBtn){
+    splitBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeTablePopup();
+      splitTable(id);
+    };
+  }
+  const rejoinBtn = popup.querySelector('[data-popup="rejoin"]');
+  if(rejoinBtn){
+    rejoinBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeTablePopup();
+      rejoinTable(id);
+    };
+  }
+  popup.querySelector('[data-popup="join"]').onclick = (e) => {
+    e.stopPropagation();
+    closeTablePopup();
+    startJoinMode(id);
+  };
+}
+
+function openTablePopup(id){
+  const t = findTable(id);
+  if(!t) return;
+  const popup = document.createElement('div');
+  popup.id = 'tablePopup';
+  popup.className = 'actions';
+  const waiter = state.seatedBy[String(id)] || tableWaiter(id) || '';
+  const waiterLine = waiter
+    ? `<span style="font-size:11px;color:var(--muted);padding:0 6px;align-self:center;">${escapeHtml(waiter)}</span>`
+    : '';
+  let extraBtn = '';
+  if(t.joined){
+    extraBtn = `<button data-popup="split">Split</button>`;
+  } else if(t.canRejoinWith || (t.originalJoined && t.originalJoined.id !== undefined)){
+    extraBtn = `<button data-popup="rejoin">Rejoin</button>`;
+  }
+  popup.innerHTML = `
+    ${waiterLine}
+    <button data-popup="move">Move</button>
+    ${extraBtn}
+    <button data-popup="clear" class="danger">Clear</button>
+  `;
+  positionPopup(popup, t);
+  popup.querySelector('[data-popup="move"]').onclick = (e) => {
+    e.stopPropagation();
+    closeTablePopup();
+    startMoveMode(id);
+  };
+  popup.querySelector('[data-popup="clear"]').onclick = (e) => {
+    e.stopPropagation();
+    closeTablePopup();
+    clearTable(id);
+  };
+  const splitBtn = popup.querySelector('[data-popup="split"]');
+  if(splitBtn){
+    splitBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeTablePopup();
+      splitTable(id);
+    };
+  }
+  const rejoinBtn = popup.querySelector('[data-popup="rejoin"]');
+  if(rejoinBtn){
+    rejoinBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeTablePopup();
+      rejoinTable(id);
+    };
+  }
+}
+function closeTablePopup(){
+  const p = document.getElementById('tablePopup');
+  if(p) p.remove();
+  document.getElementById('floor').classList.remove('move-mode');
+  document.getElementById('floor').classList.remove('join-mode');
+  movingFromId = null;
+  joiningFromId = null;
+}
+
+let movingFromId = null;
+let joiningFromId = null;
+function startMoveMode(fromId){
+  movingFromId = fromId;
+  joiningFromId = null;
+  document.getElementById('floor').classList.add('move-mode');
+  $('#hint').textContent = `Moving party from table ${fromId} — tap any open table to move them, or tap empty space to cancel.`;
+}
+function startJoinMode(fromId){
+  joiningFromId = fromId;
+  movingFromId = null;
+  document.getElementById('floor').classList.add('join-mode');
+  $('#hint').textContent = `Joining table ${fromId} with… — tap another empty table to combine, or tap empty space to cancel.`;
+}
+
+function joinTwoTables(aId, bId){
+  const a = findTable(aId);
+  const b = findTable(bId);
+  if(!a || !b) return;
+  if(isSeated(aId) || isSeated(bId)){
+    alert('Both tables must be empty to join them.');
+    return;
+  }
+
+  // If these two tables are siblings from a previous split (both have the same
+  // originalJoined.id, AND they're each other's canRejoinWith partner), restore
+  // the original parent exactly — same behavior as Rejoin.
+  const aOrig = a.originalJoined;
+  const bOrig = b.originalJoined;
+  const sameParent = aOrig && bOrig && aOrig.id !== undefined && String(aOrig.id) === String(bOrig.id);
+  const partners = (a.canRejoinWith && String(a.canRejoinWith) === String(b.id)) ||
+                   (b.canRejoinWith && String(b.canRejoinWith) === String(a.id));
+  if(sameParent && partners){
+    pushUndo('rejoin');
+    const orig = aOrig;
+    const merged = {
+      id: orig.id,
+      x: orig.x,
+      y: orig.y,
+      w: orig.w,
+      h: orig.h,
+      s: orig.s,
+      joined: true,
+      parts: orig.parts,
+    };
+    if(orig.splitRatio !== undefined) merged.splitRatio = orig.splitRatio;
+    if(orig.partSeats !== undefined) merged.partSeats = orig.partSeats;
+    state.tables = state.tables.filter(t =>
+      String(t.id) !== String(a.id) && String(t.id) !== String(b.id));
+    state.tables.push(merged);
+    joiningFromId = null;
+    document.getElementById('floor').classList.remove('join-mode');
+    save(); render();
+    return;
+  }
+
+  pushUndo('join');
+
+  // Snapshot original sizes BEFORE we resize either piece
+  const aOrigSnapshot = {id:a.id, x:a.x, y:a.y, w:a.w, h:a.h, s:a.s, joined:a.joined, parts:a.parts, canRejoinWith:a.canRejoinWith, originalJoined:a.originalJoined, splitRatio:a.splitRatio, partSeats:a.partSeats};
+  const bOrigSnapshot = {id:b.id, x:b.x, y:b.y, w:b.w, h:b.h, s:b.s, joined:b.joined, parts:b.parts, canRejoinWith:b.canRejoinWith, originalJoined:b.originalJoined, splitRatio:b.splitRatio, partSeats:b.partSeats};
+
+  // Determine join orientation: are they side-by-side (horizontal) or stacked (vertical)?
+  const aCenterX = a.x + a.w/2, aCenterY = a.y + a.h/2;
+  const bCenterX = b.x + b.w/2, bCenterY = b.y + b.h/2;
+  const dx = Math.abs(aCenterX - bCenterX);
+  const dy = Math.abs(aCenterY - bCenterY);
+  const sideBySide = dx > dy; // tables are next to each other horizontally
+
+  // Resize the smaller piece to match the larger piece on the perpendicular axis.
+  // Side-by-side join → match heights (perpendicular = height).
+  // Stacked join     → match widths  (perpendicular = width).
+  let aFinal = {...a}, bFinal = {...b};
+  if(sideBySide){
+    // Match heights to whichever is taller
+    const targetH = Math.max(a.h, b.h);
+    aFinal.h = targetH;
+    bFinal.h = targetH;
+    // Keep x position the same; snap top to the same y so they share a top edge
+    const topY = Math.min(a.y, b.y);
+    aFinal.y = topY;
+    bFinal.y = topY;
+  } else {
+    // Stacked - match widths to whichever is wider
+    const targetW = Math.max(a.w, b.w);
+    aFinal.w = targetW;
+    bFinal.w = targetW;
+    const leftX = Math.min(a.x, b.x);
+    aFinal.x = leftX;
+    bFinal.x = leftX;
+  }
+
+  // Bounding box of the resized pieces
+  const minX = Math.min(aFinal.x, bFinal.x);
+  const minY = Math.min(aFinal.y, bFinal.y);
+  const maxX = Math.max(aFinal.x + aFinal.w, bFinal.x + bFinal.w);
+  const maxY = Math.max(aFinal.y + aFinal.h, bFinal.y + bFinal.h);
+
+  const merged = {
+    id: `${a.id}+${b.id}`,
+    x: minX, y: minY, w: maxX - minX, h: maxY - minY,
+    s: (a.s || 4) + (b.s || 4),
+    joined: true,
+    parts: [a.id, b.id],
+    splitBackTo: [aOrigSnapshot, bOrigSnapshot],
+  };
+  state.tables = state.tables.filter(t =>
+    String(t.id) !== String(a.id) && String(t.id) !== String(b.id));
+  state.tables.push(merged);
+  // Check for overlaps with other tables and walls — push the merged table down/right if needed
+  resolveOverlaps(merged);
+  joiningFromId = null;
+  document.getElementById('floor').classList.remove('join-mode');
+  save(); render();
+}
+
+function rectsOverlap(a, b){
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function resolveOverlaps(target){
+  // If target overlaps any other table, shift target slightly so they don't overlap.
+  // We try a few positions: right of overlapper, below overlapper, until clear.
+  // Max iterations to avoid infinite loop.
+  const SNAP = 12;
+  for(let iter = 0; iter < 50; iter++){
+    let overlapper = null;
+    for(const t of state.tables){
+      if(String(t.id) === String(target.id)) continue;
+      if(rectsOverlap(target, t)){ overlapper = t; break; }
+    }
+    if(!overlapper) return;
+    // Shift target right past the overlapper, snapped to grid
+    const shiftRight = (overlapper.x + overlapper.w + SNAP) - target.x;
+    target.x += Math.max(SNAP, Math.round(shiftRight / SNAP) * SNAP);
+  }
+}
+
+function openWaiterPicker(tableId, waiters){
+  const t = findTable(tableId);
+  if(!t) return;
+  closeTablePopup();
+  const popup = document.createElement('div');
+  popup.id = 'tablePopup';
+  popup.className = 'actions';
+  popup.innerHTML = `
+    <span style="font-size:10px;color:var(--muted);padding:0 4px;align-self:center;">Seat with:</span>
+    ${waiters.map(w => `<button data-waiter="${escapeHtml(w)}">${escapeHtml(w)}</button>`).join('')}
+  `;
+  positionPopup(popup, t);
+  popup.querySelectorAll('[data-waiter]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const w = btn.dataset.waiter;
+      closeTablePopup();
+      seatTable(tableId, w);
+    };
+  });
+}
+
+function render(){
+  const floor = $('#floor');
+  const seatedSet = new Set(state.seated.map(String));
+  $('#stats').textContent = `${seatedSet.size} of ${state.tables.length} seated`;
+  $('#editBtn').textContent = editing ? 'Done' : 'Edit layout';
+  $('#editBtn').classList.toggle('active', editing);
+  $('#hint').textContent = editing
+    ? 'Drag to move. Tap to select, then copy / resize / delete.'
+    : 'Tap a table to seat / clear.';
+  floor.classList.toggle('editing', editing);
+  $('#addBar').classList.toggle('hidden', !editing);
+  renderScoreboard();
+
+  // Auto-resize floor to fit content. Min 900x720, plus 40px padding past furthest edge.
+  let maxRight = 900, maxBottom = 720;
+  state.tables.forEach(t => {
+    if(t.x + t.w > maxRight) maxRight = t.x + t.w;
+    if(t.y + t.h > maxBottom) maxBottom = t.y + t.h;
+  });
+  state.walls.forEach(w => {
+    if(w.x + w.w > maxRight) maxRight = w.x + w.w;
+    if(w.y + w.h > maxBottom) maxBottom = w.y + w.h;
+  });
+  floor.style.width  = (maxRight + 40) + 'px';
+  floor.style.height = (maxBottom + 40) + 'px';
+
+  let html = '';
+  state.walls.forEach(w=>{
+    const sel = (selected && selected.kind==='wall' && String(selected.id)===String(w.id)) ? 'selected' : '';
+    // Compute real-world length: walls are at 2 px per inch
+    const lengthPx = Math.max(w.w, w.h);
+    const inches = lengthPx / 2;
+    const feet = Math.floor(inches / 12);
+    const remInches = Math.round(inches - feet * 12);
+    const dimText = feet > 0
+      ? (remInches > 0 ? `${feet}' ${remInches}"` : `${feet}'`)
+      : `${remInches}"`;
+    // ID label (W1, W2 etc.) only for the four named dividers
+    const idLabel = /^w\d+$/i.test(String(w.id)) ? String(w.id).toUpperCase() : '';
+    const labelText = idLabel ? `${idLabel} · ${dimText}` : dimText;
+    const labelStyle = w.w >= w.h
+      ? `left:${w.x + w.w/2 - 30}px; top:${w.y - 18}px;`
+      : `left:${w.x + 8}px; top:${w.y + w.h/2 - 8}px;`;
+    html += `<div class="wall ${sel}" data-wall="${w.id}"
+              style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px;"></div>
+            <div class="wall-label" style="${labelStyle}">${labelText}</div>`;
+  });
+  state.tables.forEach(t=>{
+    const cls = seatedSet.has(String(t.id)) ? 'seated' : '';
+    const sel = (selected && selected.kind==='table' && String(selected.id)===String(t.id)) ? 'selected' : '';
+    const longLabel = String(t.id).length > 3;
+    const veryLong = String(t.id).length > 6;
+    const numStyle = veryLong ? 'font-size:11px;' : (longLabel ? 'font-size:13px;' : '');
+    const sec = tableSection(t.id);
+    const waiter = tableWaiter(t.id);
+    const sectionCls = sec ? `section-${sec} has-section` : '';
+    const waiterTag = waiter ? `<div class="waiter-tag">${escapeHtml(waiter)}</div>` : '';
+    const joinedCls = t.joined ? 'joined' : '';
+    const splitStyle = (t.joined && typeof t.splitRatio === 'number')
+      ? `--split-pos: ${(t.splitRatio * 100).toFixed(2)}%;`
+      : '';
+    html += `
+      <button class="table ${cls} ${sel} ${sectionCls} ${joinedCls}" data-table="${t.id}"
+              style="left:${t.x}px; top:${t.y}px; width:${t.w}px; height:${t.h}px; ${splitStyle}">
+        ${waiterTag}
+        <div class="num" style="${numStyle}">${t.id}</div>
+        <div class="seats">${t.s}</div>
+      </button>`;
+  });
+
+  // resize handles + actions toolbar for selected
+  if(editing && selected){
+    if(selected.kind === 'wall'){
+      const w = findWall(selected.id);
+      if(w){
+        const isHorizontal = w.w >= w.h;
+        if(isHorizontal){
+          html += `<div class="handle h-end" data-resize="wall:${w.id}:right"
+                    style="left:${w.x + w.w - 7}px; top:${w.y + w.h/2 - 7}px;"></div>`;
+          html += `<div class="handle h-end" data-resize="wall:${w.id}:left"
+                    style="left:${w.x - 7}px; top:${w.y + w.h/2 - 7}px;"></div>`;
+        } else {
+          html += `<div class="handle v-end" data-resize="wall:${w.id}:bottom"
+                    style="left:${w.x + w.w/2 - 7}px; top:${w.y + w.h - 7}px;"></div>`;
+          html += `<div class="handle v-end" data-resize="wall:${w.id}:top"
+                    style="left:${w.x + w.w/2 - 7}px; top:${w.y - 7}px;"></div>`;
+        }
+        html += renderActions(w.x + w.w/2, w.y - 8, 'wall', w.id);
+      }
+    } else {
+      const t = findTable(selected.id);
+      if(t){
+        // Four resize handles on a table: right edge, left edge, bottom edge, top edge
+        html += `<div class="handle h-end" data-resize="table:${t.id}:right"
+                  style="left:${t.x + t.w - 7}px; top:${t.y + t.h/2 - 7}px;"></div>`;
+        html += `<div class="handle h-end" data-resize="table:${t.id}:left"
+                  style="left:${t.x - 7}px; top:${t.y + t.h/2 - 7}px;"></div>`;
+        html += `<div class="handle v-end" data-resize="table:${t.id}:bottom"
+                  style="left:${t.x + t.w/2 - 7}px; top:${t.y + t.h - 7}px;"></div>`;
+        html += `<div class="handle v-end" data-resize="table:${t.id}:top"
+                  style="left:${t.x + t.w/2 - 7}px; top:${t.y - 7}px;"></div>`;
+        html += renderActions(t.x + t.w/2, t.y - 8, 'table', t.id);
+      }
+    }
+  }
+
+  floor.innerHTML = html;
+  bind();
+}
+
+function renderActions(centerX, topY, kind, id){
+  const left = Math.max(0, centerX - 130);
+  const top  = Math.max(0, topY - 36);
+  let extraBtn = '';
+  if(kind === 'table'){
+    const t = findTable(id);
+    if(t){
+      if(t.joined){
+        extraBtn = `<button data-act="split" data-kind="${kind}" data-id="${id}">Split</button>`;
+      } else if(t.canRejoinWith){
+        extraBtn = `<button data-act="rejoin" data-kind="${kind}" data-id="${id}">Rejoin</button>`;
+      }
+    }
+  }
+  const renameBtn = kind === 'table'
+    ? `<button data-act="rename" data-kind="${kind}" data-id="${id}">Rename</button>`
+    : '';
+  return `
+    <div class="actions" style="left:${left}px; top:${top}px;">
+      ${renameBtn}
+      ${extraBtn}
+      <button data-act="copy" data-kind="${kind}" data-id="${id}">Copy</button>
+      <button data-act="delete" data-kind="${kind}" data-id="${id}" class="danger">Delete</button>
+    </div>`;
+}
+
+function bind(){
+  document.querySelectorAll('[data-table]').forEach(el=>{
+    const raw = el.dataset.table;
+    const id = isNaN(parseInt(raw)) || /\D/.test(raw) ? raw : parseInt(raw);
+    if(editing){
+      makeDraggable(el, findTable(id), 'table', id);
+    } else {
+      // Outside edit mode: allow drag-to-snap on empty tables, normal tap on seated/anything else
+      makeDraggable(el, findTable(id), 'table', id);
+    }
+  });
+  document.querySelectorAll('[data-wall]').forEach(el=>{
+    const wid = el.dataset.wall;
+    makeDraggable(el, findWall(wid), 'wall', wid);
+  });
+  // resize handles
+  document.querySelectorAll('[data-resize]').forEach(el=>{
+    const [kind, id, side] = el.dataset.resize.split(':');
+    el.addEventListener('mousedown', e=>startResize(e, kind, id, side));
+    el.addEventListener('touchstart', e=>startResize(e, kind, id, side), {passive:false});
+  });
+  // action buttons (copy/delete/rename/split/rejoin)
+  document.querySelectorAll('.actions button').forEach(btn=>{
+    const handler = e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const act = btn.dataset.act;
+      const kind = btn.dataset.kind;
+      const id = btn.dataset.id;
+      if(act==='copy') copyItem(kind, id);
+      if(act==='delete') deleteItem(kind, id);
+      if(act==='rename') renameTable(id);
+      if(act==='split') splitTable(id);
+      if(act==='rejoin') rejoinTable(id);
+    };
+    // Use both pointerdown (immediate response) and click as a fallback
+    btn.addEventListener('pointerdown', handler);
+  });
+}
+
+function copyItem(kind, id){
+  pushUndo('copy');
+  if(kind==='table'){
+    const t = findTable(id) || findTable(parseInt(id));
+    if(!t) return;
+    const newId = uniqueTableId(t.id);
+    const copy = {...t, id:newId, x: snap(t.x + 24), y: snap(t.y + 24)};
+    state.tables.push(copy);
+    selected = {kind:'table', id:newId};
+  } else {
+    const w = findWall(id);
+    if(!w) return;
+    const newId = uniqueWallId();
+    const copy = {...w, id:newId, x: snap(w.x + 24), y: snap(w.y + 24)};
+    state.walls.push(copy);
+    selected = {kind:'wall', id:newId};
+  }
+  save(); render();
+}
+
+function deleteItem(kind, id){
+  if(!confirm(`Delete this ${kind}?`)) return;
+  pushUndo('delete');
+  if(kind==='table'){
+    state.tables = state.tables.filter(t=>String(t.id)!==String(id));
+    state.seated = state.seated.filter(x=>String(x)!==String(id));
+  } else {
+    state.walls = state.walls.filter(w=>String(w.id)!==String(id));
+  }
+  selected = null;
+  save(); render();
+}
+
+function renameTable(id){
+  const t = findTable(id);
+  if(!t) return;
+  const input = prompt('Table name or number:', String(t.id));
+  if(input === null) return; // cancelled
+  const newName = input.trim();
+  if(!newName) return;
+  if(String(newName) === String(t.id)) return; // no change
+
+  // Convert to number if it's purely numeric
+  const newId = /^\d+$/.test(newName) ? parseInt(newName) : newName;
+
+  // Check for collision
+  if(findTable(newId)){
+    alert(`A table named "${newName}" already exists.`);
+    return;
+  }
+
+  pushUndo('rename');
+
+  // Move seated state along with rename
+  const seatedIdx = state.seated.findIndex(x=>String(x)===String(t.id));
+  if(seatedIdx >= 0) state.seated[seatedIdx] = newId;
+
+  t.id = newId;
+  selected = {kind:'table', id:newId};
+  save(); render();
+}
+
+function splitTable(id){
+  const t = findTable(id);
+  if(!t || !t.joined) return;
+  if(isSeated(id)){
+    if(!confirm('This table is currently seated. Split anyway? The party will be cleared.')) return;
+    clearTable(id);
+  }
+  pushUndo('split');
+
+  // If this was a custom join (has splitBackTo), restore the original tables exactly
+  if(t.splitBackTo && t.splitBackTo.length === 2){
+    state.tables = state.tables.filter(x => String(x.id) !== String(t.id));
+    t.splitBackTo.forEach(orig => {
+      // Strip undefined fields
+      const restored = {};
+      for(const k in orig){ if(orig[k] !== undefined) restored[k] = orig[k]; }
+      state.tables.push(restored);
+    });
+    selected = {kind:'table', id:t.splitBackTo[0].id};
+    save(); render();
+    return;
+  }
+
+  // Otherwise, this is one of the original 33/43/26 type tables — split into two pieces
+  const horizontal = t.w >= t.h;
+  const baseId = String(t.id);
+  let id1, id2;
+  if(t.parts && t.parts.length === 2){
+    id1 = t.parts[0]; id2 = t.parts[1];
+  } else {
+    id1 = `${baseId}a`; id2 = `${baseId}b`;
+  }
+  while(findTable(id1)) id1 = `${id1}'`;
+  while(findTable(id2) || String(id2)===String(id1)) id2 = `${id2}'`;
+
+  // Default 50/50 split, default each piece is half the parent's seats
+  const ratio = (typeof t.splitRatio === 'number' && t.splitRatio > 0 && t.splitRatio < 1) ? t.splitRatio : 0.5;
+  const seats1 = (t.partSeats && t.partSeats[0]) || Math.floor((t.s||8)/2);
+  const seats2 = (t.partSeats && t.partSeats[1]) || Math.ceil((t.s||8)/2);
+
+  let p1, p2;
+  const origMeta = {id:t.id, x:t.x, y:t.y, w:t.w, h:t.h, s:t.s, parts:[id1,id2], splitRatio:t.splitRatio, partSeats:t.partSeats};
+  if(horizontal){
+    const w1 = Math.round(t.w * ratio);
+    const w2 = t.w - w1;
+    p1 = {id:id1, x:t.x,            y:t.y, w:w1, h:t.h, s:seats1, canRejoinWith:id2, originalJoined:origMeta};
+    p2 = {id:id2, x:t.x + w1 + 12,  y:t.y, w:w2, h:t.h, s:seats2, canRejoinWith:id1, originalJoined:origMeta};
+  } else {
+    const h1 = Math.round(t.h * ratio);
+    const h2 = t.h - h1;
+    p1 = {id:id1, x:t.x, y:t.y,            w:t.w, h:h1, s:seats1, canRejoinWith:id2, originalJoined:origMeta};
+    p2 = {id:id2, x:t.x, y:t.y + h1 + 12,  w:t.w, h:h2, s:seats2, canRejoinWith:id1, originalJoined:origMeta};
+  }
+
+  state.tables = state.tables.filter(x => String(x.id) !== String(t.id));
+  state.tables.push(p1, p2);
+  selected = {kind:'table', id:p1.id};
+  save(); render();
+}
+
+function rejoinTable(id){
+  const t = findTable(id);
+  if(!t) return;
+
+  // Find the partner: prefer canRejoinWith, fall back to originalJoined.parts
+  let partner = null;
+  if(t.canRejoinWith){
+    partner = findTable(t.canRejoinWith);
+  }
+  if(!partner && t.originalJoined && Array.isArray(t.originalJoined.parts)){
+    // Find the OTHER part — anything in originalJoined.parts that isn't this table
+    for(const p of t.originalJoined.parts){
+      if(String(p) !== String(t.id)){
+        const candidate = findTable(p);
+        if(candidate) { partner = candidate; break; }
+      }
+    }
+  }
+
+  if(!partner){
+    alert('Partner table not found — was it deleted, joined elsewhere, or renamed? Cannot rejoin.');
+    return;
+  }
+  if(isSeated(t.id) || isSeated(partner.id)){
+    if(!confirm('One of these tables is seated. Rejoin anyway? The party will be cleared.')) return;
+    clearTable(t.id); clearTable(partner.id);
+  }
+  pushUndo('rejoin');
+
+  const orig = t.originalJoined || partner.originalJoined;
+
+  let merged;
+  if(orig && orig.id !== undefined){
+    merged = {
+      id: orig.id,
+      x: orig.x,
+      y: orig.y,
+      w: orig.w,
+      h: orig.h,
+      s: orig.s,
+      joined: true,
+      parts: orig.parts,
+    };
+    if(orig.splitRatio !== undefined) merged.splitRatio = orig.splitRatio;
+    if(orig.partSeats !== undefined) merged.partSeats = orig.partSeats;
+  } else {
+    const minX = Math.min(t.x, partner.x);
+    const minY = Math.min(t.y, partner.y);
+    const maxX = Math.max(t.x + t.w, partner.x + partner.w);
+    const maxY = Math.max(t.y + t.h, partner.y + partner.h);
+    merged = {
+      id:`${t.id}+${partner.id}`,
+      x:minX, y:minY,
+      w:maxX-minX, h:maxY-minY,
+      s:(t.s||4) + (partner.s||4),
+      joined:true,
+    };
+  }
+
+  state.tables = state.tables.filter(x =>
+    String(x.id) !== String(t.id) && String(x.id) !== String(partner.id));
+  state.tables.push(merged);
+  selected = {kind:'table', id:merged.id};
+  save(); render();
+}
+
+function startResize(e, kind, id, side){
+  e.preventDefault();
+  e.stopPropagation();
+  const obj = kind==='wall' ? findWall(id) : findTable(id);
+  if(!obj) return;
+  const pt0 = e.touches ? e.touches[0] : e;
+  const startX = pt0.clientX, startY = pt0.clientY;
+  const orig = {x:obj.x, y:obj.y, w:obj.w, h:obj.h};
+
+  // Find the actual DOM element being resized so we can update it directly
+  const selector = kind === 'wall' ? `[data-wall="${id}"]` : `[data-table="${id}"]`;
+  const el = document.querySelector(selector);
+
+  const onMove = ev => {
+    ev.preventDefault();
+    const pt = ev.touches ? ev.touches[0] : ev;
+    const dx = pt.clientX - startX;
+    const dy = pt.clientY - startY;
+    if(side==='right'){
+      obj.w = Math.max(SNAP, snap(orig.w + dx));
+    } else if(side==='left'){
+      const newW = Math.max(SNAP, snap(orig.w - dx));
+      obj.x = orig.x + (orig.w - newW);
+      obj.w = newW;
+    } else if(side==='bottom'){
+      obj.h = Math.max(SNAP, snap(orig.h + dy));
+    } else if(side==='top'){
+      const newH = Math.max(SNAP, snap(orig.h - dy));
+      obj.y = orig.y + (orig.h - newH);
+      obj.h = newH;
+    }
+    // Update only this one element's position/size — don't re-render everything
+    if(el){
+      el.style.left   = obj.x + 'px';
+      el.style.top    = obj.y + 'px';
+      el.style.width  = obj.w + 'px';
+      el.style.height = obj.h + 'px';
+    }
+    // Reposition the resize handles + actions toolbar by calling render only on mouseup
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+    save();
+    render(); // single re-render at the end to update handle positions
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('touchend', onUp);
+}
+
+function makeDraggable(el, obj, kind, id){
+  if(!obj) return;
+  let startX, startY, origX, origY, dragging = false, moved = false;
+  let snapTarget = null;
+
+  const onDown = e => {
+    if(e.target.closest('.handle') || e.target.closest('.actions')) return;
+    // Don't drag seated tables (would be confusing during a shift)
+    if(kind === 'table' && isSeated(id)) return;
+    e.preventDefault();
+    dragging = true; moved = false;
+    el.classList.add('dragging');
+    const pt = e.touches ? e.touches[0] : e;
+    startX = pt.clientX; startY = pt.clientY;
+    origX = obj.x; origY = obj.y;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, {passive:false});
+    document.addEventListener('touchend', onUp);
+  };
+  const onMove = e => {
+    if(!dragging) return;
+    e.preventDefault();
+    const pt = e.touches ? e.touches[0] : e;
+    const dx = pt.clientX - startX;
+    const dy = pt.clientY - startY;
+    if(Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+    obj.x = Math.max(0, snap(origX + dx));
+    obj.y = Math.max(0, snap(origY + dy));
+    el.style.left = obj.x + 'px';
+    el.style.top  = obj.y + 'px';
+
+    // Snap-to-join check (any mode for tables)
+    if(kind === 'table'){
+      try {
+        document.querySelectorAll('.table.snap-hover').forEach(x => x.classList.remove('snap-hover'));
+        snapTarget = findSnapPartner(obj, id);
+        if(snapTarget){
+          let targetEl = null;
+          document.querySelectorAll('[data-table]').forEach(node => {
+            if(String(node.dataset.table) === String(snapTarget.tableId)) targetEl = node;
+          });
+          if(targetEl) targetEl.classList.add('snap-hover');
+          el.classList.add('snap-source');
+        } else {
+          el.classList.remove('snap-source');
+        }
+      } catch(err) {
+        console.error('snap detection error', err);
+      }
+    }
+  };
+  const onUp = () => {
+    if(!dragging) return;
+    dragging = false;
+    el.classList.remove('dragging');
+    el.classList.remove('snap-source');
+    document.querySelectorAll('.table.snap-hover').forEach(x => x.classList.remove('snap-hover'));
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+
+    if(!moved){
+      if(editing){
+        selected = (selected && String(selected.id)===String(id) && selected.kind===kind)
+          ? null
+          : {kind, id};
+        obj.x = origX; obj.y = origY;
+        render();
+      } else if(kind === 'table'){
+        obj.x = origX; obj.y = origY;
+        el.style.left = obj.x + 'px';
+        el.style.top  = obj.y + 'px';
+        handleTableTap(id);
+      }
+      return;
+    }
+
+    if(kind === 'table' && snapTarget && !isSeated(id) && !isSeated(snapTarget.tableId)){
+      // Before joining, restore the dragged table to its ORIGINAL position
+      // so that on Split, it goes back where it came from.
+      obj.x = origX; obj.y = origY;
+      joinTwoTables(id, snapTarget.tableId);
+    } else {
+      // Persist drag movement (in any mode) with undo support
+      const newX = obj.x, newY = obj.y;
+      obj.x = origX; obj.y = origY;
+      pushUndo('move');
+      obj.x = newX; obj.y = newY;
+      save();
+      render();
+    }
+  };
+
+  el.addEventListener('mousedown', onDown);
+  el.addEventListener('touchstart', onDown, {passive:false});
+}
+
+const SNAP_THRESHOLD = 24; // pixels — how close edges must be to trigger snap
+function findSnapPartner(movingObj, movingId){
+  if(isSeated(movingId)) return null;
+  for(const other of state.tables){
+    if(String(other.id) === String(movingId)) continue;
+    if(isSeated(other.id)) continue;
+
+    const a = movingObj;
+    const b = other;
+
+    // Only snap when the two rectangles overlap by at least HALF of the smaller table's area
+    if(!rectsOverlap(a, b)) continue;
+    const xOverlap = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const yOverlap = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    const overlapArea = xOverlap * yOverlap;
+    const aArea = a.w * a.h;
+    const bArea = b.w * b.h;
+    const smallerArea = Math.min(aArea, bArea);
+    if(overlapArea < smallerArea * 0.5) continue;
+
+    // Determine which side they're snapping on by comparing centers
+    const aCx = a.x + a.w/2, aCy = a.y + a.h/2;
+    const bCx = b.x + b.w/2, bCy = b.y + b.h/2;
+    const dx = aCx - bCx;
+    const dy = aCy - bCy;
+
+    if(Math.abs(dx) > Math.abs(dy)){
+      return {tableId: b.id, side: dx > 0 ? 'left' : 'right'};
+    } else {
+      return {tableId: b.id, side: dy > 0 ? 'top' : 'bottom'};
+    }
+  }
+  return null;
+}
+
+// Add new items
+$('#addBar').onclick = e=>{
+  const t = e.target.dataset.add;
+  if(!t) return;
+  if(t==='table-4'){
+    const id = uniqueTableId(99);
+    state.tables.push({id, x:48, y:48, w:60, h:60, s:4});
+    selected = {kind:'table', id};
+  } else if(t==='table-6h'){
+    const id = uniqueTableId(99);
+    state.tables.push({id, x:48, y:48, w:108, h:60, s:6});
+    selected = {kind:'table', id};
+  } else if(t==='table-6v'){
+    const id = uniqueTableId(99);
+    state.tables.push({id, x:48, y:48, w:60, h:108, s:6});
+    selected = {kind:'table', id};
+  } else if(t==='wall-h'){
+    const id = uniqueWallId();
+    state.walls.push({id, x:48, y:48, w:120, h:5});
+    selected = {kind:'wall', id};
+  } else if(t==='wall-v'){
+    const id = uniqueWallId();
+    state.walls.push({id, x:48, y:48, w:5, h:120});
+    selected = {kind:'wall', id};
+  }
+  save(); render();
+};
+
+$('#undoBtn').onclick = undo;
+
+document.addEventListener('keydown', e => {
+  // Ctrl+Z / Cmd+Z = undo (but not when typing in an input)
+  const tag = (e.target.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea') return;
+  if((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey){
+    e.preventDefault();
+    undo();
+  }
+});
+
+$('#editBtn').onclick = ()=>{
+  editing = !editing;
+  selected = null;
+  render();
+};
+$('#reset').onclick = ()=>{
+  if(editing){
+    if(confirm('Reset layout to default? (puts all tables back)')){
+      state.tables = JSON.parse(JSON.stringify(DEFAULT_TABLES));
+      state.walls  = JSON.parse(JSON.stringify(DEFAULT_WALLS));
+      selected = null;
+      save(); render();
+    }
+  } else {
+    if(state.seated.length === 0) return;
+    if(confirm('Clear all seated tables?')){
+      state.seated = [];
+      save(); render();
+    }
+  }
+};
+
+// click empty floor to deselect / cancel move/join
+document.getElementById('floor').addEventListener('mousedown', e=>{
+  if(e.target.id === 'floor'){
+    if(editing){ selected = null; render(); }
+    else if(movingFromId !== null || joiningFromId !== null || document.getElementById('tablePopup')){
+      closeTablePopup();
+      render();
+    }
+  }
+});
+
+/* =========================================================
+   WAITLIST
+   ========================================================= */
+function fmtClock(ts){
+  const d = new Date(ts);
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2,'0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12 || 12;
+  return `${h}:${m}${ampm}`;
+}
+function minsAgo(ts){
+  return Math.max(0, Math.floor((Date.now() - ts) / 60000));
+}
+function secsAgo(ts){
+  return Math.max(0, Math.floor((Date.now() - ts) / 1000) % 60);
+}
+
+function uidWait(){
+  return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+}
+
+function renderWaitlist(){
+  // Active list (waiting) on top, then seated/no-show grouped below
+  const active = state.waitlist.filter(g => g.status === 'waiting');
+  const done   = state.waitlist.filter(g => g.status !== 'waiting');
+
+  const activeCount = active.length;
+  $('#waitCount').textContent = activeCount > 0 ? `(${activeCount})` : '';
+
+  const list = $('#waitList');
+  if(state.waitlist.length === 0){
+    list.innerHTML = `<div class="wait-empty">No one on the list yet.</div>`;
+    return;
+  }
+
+  let html = '';
+  if(active.length){
+    html += `<div class="wait-section-label">Waiting</div>`;
+    active.forEach(g => html += renderWaitRow(g));
+  }
+  if(done.length){
+    html += `<div class="wait-section-label">History</div>`;
+    // most recent first
+    done.slice().sort((a,b) => (b.endedAt||0) - (a.endedAt||0))
+        .forEach(g => html += renderWaitRow(g));
+  }
+  list.innerHTML = html;
+
+  // wire up buttons
+  list.querySelectorAll('[data-w-action]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.wAction;
+      const g = state.waitlist.find(x => x.id === id);
+      if(!g) return;
+      if(action === 'seat'){
+        g.status = 'seated';
+        g.endedAt = Date.now();
+      } else if(action === 'noshow'){
+        g.status = 'no-show';
+        g.endedAt = Date.now();
+      } else if(action === 'left'){
+        g.status = 'left';
+        g.endedAt = Date.now();
+      } else if(action === 'remove'){
+        if(!confirm(`Remove ${g.name} from the list?`)) return;
+        state.waitlist = state.waitlist.filter(x => x.id !== id);
+      } else if(action === 'restore'){
+        g.status = 'waiting';
+        delete g.endedAt;
+      }
+      save(); renderWaitlist();
+    };
+  });
+}
+
+function renderWaitRow(g){
+  const cls = g.status === 'seated' ? 'done'
+            : g.status === 'no-show' ? 'no-show'
+            : g.status === 'left' ? 'left'
+            : '';
+  let meta;
+  if(g.status === 'waiting'){
+    meta = `Added ${fmtClock(g.addedAt)} · waiting ${minsAgo(g.addedAt)}m`;
+  } else if(g.status === 'seated'){
+    meta = `Added ${fmtClock(g.addedAt)} · seated ${fmtClock(g.endedAt)}`;
+  } else if(g.status === 'left'){
+    meta = `Added ${fmtClock(g.addedAt)} · left ${fmtClock(g.endedAt)}`;
+  } else {
+    meta = `Added ${fmtClock(g.addedAt)} · no-show ${fmtClock(g.endedAt)}`;
+  }
+  let actions;
+  if(g.status === 'waiting'){
+    actions = `
+      <button class="primary" data-w-action="seat" data-id="${g.id}">Seat</button>
+      <button class="warn" data-w-action="noshow" data-id="${g.id}">No-show</button>
+      <button data-w-action="left" data-id="${g.id}">Left</button>
+      <button data-w-action="remove" data-id="${g.id}">×</button>`;
+  } else {
+    actions = `
+      <button data-w-action="restore" data-id="${g.id}">Undo</button>
+      <button data-w-action="remove" data-id="${g.id}">×</button>`;
+  }
+  return `
+    <div class="wait-row ${cls}">
+      <div class="info">
+        <div class="name">${escapeHtml(g.name)} <span style="font-weight:400;color:var(--muted);">· ${g.size}</span></div>
+        <div class="meta">${meta}</div>
+      </div>
+      <div class="actions-r">${actions}</div>
+    </div>`;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+function openWaitlist(){
+  $('#waitPanel').classList.add('show');
+  $('#waitOverlay').classList.add('show');
+  renderWaitlist();
+  setTimeout(() => $('#wName').focus(), 200);
+}
+function closeWaitlist(){
+  $('#waitPanel').classList.remove('show');
+  $('#waitOverlay').classList.remove('show');
+}
+
+$('#waitBtn').onclick = openWaitlist;
+$('#waitClose').onclick = closeWaitlist;
+$('#waitOverlay').onclick = closeWaitlist;
+
+$('#wAdd').onclick = () => {
+  const name = $('#wName').value.trim();
+  const size = parseInt($('#wSize').value) || 2;
+  if(!name) return;
+  state.waitlist.push({
+    id: uidWait(),
+    name,
+    size,
+    status: 'waiting',
+    addedAt: Date.now(),
+  });
+  $('#wName').value = '';
+  $('#wSize').value = '';
+  save();
+  renderWaitlist();
+  $('#wName').focus();
+};
+$('#wName').addEventListener('keydown', e => { if(e.key === 'Enter') $('#wSize').focus(); });
+$('#wSize').addEventListener('keydown', e => { if(e.key === 'Enter') $('#wAdd').click(); });
+
+// Refresh waiting time displays every minute while panel is open
+setInterval(() => {
+  if($('#waitPanel').classList.contains('show')){
+    document.querySelectorAll('.wait-row').forEach(row => {
+      const btn = row.querySelector('[data-w-action="seat"]');
+      if(!btn) return;
+      const id = btn.dataset.id;
+      const g = state.waitlist.find(x => x.id === id);
+      if(!g || g.status !== 'waiting') return;
+      const meta = row.querySelector('.meta');
+      if(meta){
+        meta.textContent = `Added ${fmtClock(g.addedAt)} · waiting ${minsAgo(g.addedAt)}m`;
+      }
+    });
+  }
+  const activeCount = state.waitlist.filter(g => g.status === 'waiting').length;
+  $('#waitCount').textContent = activeCount > 0 ? `(${activeCount})` : '';
+}, 60000);
+
+/* =========================================================
+   RESERVATIONS
+   ========================================================= */
+const DAYS_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function fmtResDate(dateStr){
+  // dateStr is YYYY-MM-DD; return "Friday 5/25/26"
+  if(!dateStr) return '';
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m-1, d);
+  const dayName = DAYS_FULL[date.getDay()];
+  const yy = String(y).slice(-2);
+  return `${dayName} ${m}/${d}/${yy}`;
+}
+function fmtResTime(timeStr){
+  if(!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2,'0')}${ampm}`;
+}
+function dateGroupLabel(dateStr){
+  // Returns a short label like "Today · Friday 4/30/26"
+  if(!dateStr) return '';
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m-1, d);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+  let prefix = '';
+  if(date.getTime() === today.getTime()) prefix = 'Today · ';
+  else if(date.getTime() === tomorrow.getTime()) prefix = 'Tomorrow · ';
+  return prefix + fmtResDate(dateStr);
+}
+function uidRes(){
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+}
+
+function renderReservations(){
+  // Sort by date then time, ascending
+  const sorted = state.reservations.slice().sort((a,b) => {
+    const A = (a.date||'') + ' ' + (a.time||'');
+    const B = (b.date||'') + ' ' + (b.time||'');
+    return A.localeCompare(B);
+  });
+
+  // Filter out past reservations from upcoming count for header badge
+  const todayStr = todayISO();
+  const upcoming = sorted.filter(r => (r.date||'') >= todayStr && r.status !== 'cancelled');
+  $('#resCount').textContent = upcoming.length > 0 ? `(${upcoming.length})` : '';
+
+  const list = $('#resList');
+  if(state.reservations.length === 0){
+    list.innerHTML = `<div class="wait-empty">No reservations yet.</div>`;
+    return;
+  }
+
+  // Group by date
+  let html = '';
+  let lastDate = null;
+  sorted.forEach(r => {
+    if(r.date !== lastDate){
+      lastDate = r.date;
+      html += `<div class="res-day">${dateGroupLabel(r.date)}</div>`;
+    }
+    html += renderResRow(r);
+  });
+  list.innerHTML = html;
+
+  list.querySelectorAll('[data-r-action]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.rAction;
+      const r = state.reservations.find(x => x.id === id);
+      if(!r) return;
+      if(action === 'remove'){
+        if(!confirm(`Remove reservation for ${r.name}?`)) return;
+        state.reservations = state.reservations.filter(x => x.id !== id);
+      } else if(action === 'cancel'){
+        r.status = 'cancelled';
+      } else if(action === 'restore'){
+        delete r.status;
+      } else if(action === 'edit'){
+        editReservation(r);
+        return;
+      }
+      save(); renderReservations();
+    };
+  });
+}
+
+function editReservation(r){
+  $('#editResName').value = r.name || '';
+  $('#editResPhone').value = r.phone || '';
+  $('#editResSize').value = r.size || '';
+  $('#editResDate').value = r.date || '';
+  $('#editResTime').value = r.time || '';
+  $('#editResReason').value = r.reason || '';
+  $('#editResNote').value = r.note || '';
+  $('#editResModal').classList.add('show');
+  $('#editResModal').dataset.editingId = r.id;
+}
+function closeEditRes(){
+  $('#editResModal').classList.remove('show');
+  delete $('#editResModal').dataset.editingId;
+}
+
+$('#editResCancel').onclick = closeEditRes;
+$('#editResModal').onclick = e => {
+  if(e.target.id === 'editResModal') closeEditRes();
+};
+$('#editResSave').onclick = () => {
+  const id = $('#editResModal').dataset.editingId;
+  const r = state.reservations.find(x => x.id === id);
+  if(!r) return closeEditRes();
+  const name = $('#editResName').value.trim();
+  if(!name){ $('#editResName').focus(); return; }
+  const date = $('#editResDate').value;
+  if(!date){ $('#editResDate').focus(); return; }
+  r.name = name;
+  r.phone = $('#editResPhone').value.trim();
+  r.size = parseInt($('#editResSize').value) || r.size || 2;
+  r.date = date;
+  r.time = $('#editResTime').value;
+  r.reason = $('#editResReason').value;
+  r.note = $('#editResNote').value.trim();
+  r.updatedAt = Date.now();
+  save();
+  renderReservations();
+  closeEditRes();
+};
+
+function renderResRow(r){
+  const cancelled = r.status === 'cancelled';
+  const cls = cancelled ? 'no-show' : '';
+  const phone = r.phone ? ` · ${escapeHtml(r.phone)}` : '';
+  const time = r.time ? fmtResTime(r.time) : '';
+  const reasonTag = r.reason
+    ? `<span class="res-tag ${r.reason.toLowerCase()}">${escapeHtml(r.reason)}</span>`
+    : '';
+  const noteBlock = r.note
+    ? `<div class="res-note">${escapeHtml(r.note)}</div>`
+    : '';
+  let actions;
+  if(cancelled){
+    actions = `
+      <button data-r-action="restore" data-id="${r.id}">Undo</button>
+      <button data-r-action="remove" data-id="${r.id}">×</button>`;
+  } else {
+    actions = `
+      <button data-r-action="edit" data-id="${r.id}">Edit</button>
+      <button class="warn" data-r-action="cancel" data-id="${r.id}">Cancel</button>
+      <button data-r-action="remove" data-id="${r.id}">×</button>`;
+  }
+  return `
+    <div class="wait-row ${cls}" style="flex-direction:column; align-items:stretch;">
+      <div style="display:flex; align-items:center; gap:10px; width:100%;">
+        <div class="info">
+          <div class="name">${escapeHtml(r.name)} <span style="font-weight:400;color:var(--muted);">· ${r.size}</span>${reasonTag}</div>
+          <div class="meta">${time}${phone}</div>
+        </div>
+        <div class="actions-r">${actions}</div>
+      </div>
+      ${noteBlock}
+    </div>`;
+}
+
+function todayISO(){
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function openReservations(){
+  $('#resPanel').classList.add('show');
+  $('#resOverlay').classList.add('show');
+  // default the date input to today if empty
+  if(!$('#rDate').value) $('#rDate').value = todayISO();
+  renderReservations();
+  setTimeout(() => $('#rName').focus(), 200);
+}
+function closeReservations(){
+  $('#resPanel').classList.remove('show');
+  $('#resOverlay').classList.remove('show');
+}
+
+$('#resBtn').onclick = openReservations;
+$('#resClose').onclick = closeReservations;
+$('#resOverlay').onclick = closeReservations;
+
+$('#rAdd').onclick = () => {
+  const name = $('#rName').value.trim();
+  const phone = $('#rPhone').value.trim();
+  const size = parseInt($('#rSize').value) || 2;
+  const date = $('#rDate').value;
+  const time = $('#rTime').value;
+  const reason = $('#rReason').value;
+  const note = $('#rNote').value.trim();
+  if(!name){ $('#rName').focus(); return; }
+  if(!date){ $('#rDate').focus(); return; }
+  state.reservations.push({
+    id: uidRes(),
+    name, phone, size, date, time, reason, note,
+    createdAt: Date.now(),
+  });
+  $('#rName').value = '';
+  $('#rPhone').value = '';
+  $('#rSize').value = '';
+  $('#rTime').value = '';
+  $('#rReason').value = '';
+  $('#rNote').value = '';
+  save();
+  renderReservations();
+  $('#rName').focus();
+};
+
+// Update reservation count on load
+function updateResCountInHeader(){
+  const todayStr = todayISO();
+  const upcoming = state.reservations.filter(r =>
+    (r.date||'') >= todayStr && r.status !== 'cancelled'
+  );
+  $('#resCount').textContent = upcoming.length > 0 ? `(${upcoming.length})` : '';
+}
+
+/* =========================================================
+   SECTIONS / WAITER ASSIGNMENTS
+   ========================================================= */
+const WAITERS = ['Chispa','Oso','Tere','Sol'];
+
+// Each preset defines how many sections exist and which tables belong to each.
+// Tables not listed are "open" - any waiter can take them.
+const SECTION_PRESETS = {
+  2: {
+    1: [10,11,12,13,20,21,33,30,31,41,43],
+    2: [14,15,16,24,25,26,27,34,44,45,46],
+  },
+  3: {
+    1: [20,30,31,41,33,43],
+    2: [10,11,12,13,14,15,16,21],
+    3: [24,25,26,27,34,44,45,46],
+  },
+  4: {
+    1: [50,60,61,70,80,81,82],
+    2: [20,30,31,41,33,43],
+    3: [10,11,12,13,14,15,16,21],
+    4: [24,25,26,27,34,44,45,46],
+  },
+};
+
+function tableSection(tableId){
+  const preset = SECTION_PRESETS[state.sections.shiftSize];
+  if(!preset) return null;
+
+  // Direct lookup first — is this exact ID in the section preset?
+  for(const sec of Object.keys(preset)){
+    if(preset[sec].some(id => String(id) === String(tableId))){
+      return parseInt(sec);
+    }
+  }
+
+  // Walk all part IDs (recursively for nested joins) and check the preset for each.
+  // Returns: dominant section (most parts), tiebreaker = lower section number.
+  function collectSections(id, visited){
+    visited = visited || new Set();
+    if(visited.has(String(id))) return [];
+    visited.add(String(id));
+
+    // Check preset directly
+    for(const sec of Object.keys(preset)){
+      if(preset[sec].some(x => String(x) === String(id))){
+        return [parseInt(sec)];
+      }
+    }
+
+    // Look up the table's metadata to get parts/originalJoined/splitBackTo
+    const t = state.tables.find(x => String(x.id) === String(id));
+    let sources = [];
+    if(t){
+      // Live table with parts (custom join)
+      if(t.parts && t.parts.length){
+        for(const p of t.parts){
+          sources = sources.concat(collectSections(p, visited));
+        }
+      }
+      // Split-back-to (custom join history)
+      if(t.splitBackTo && t.splitBackTo.length){
+        for(const orig of t.splitBackTo){
+          sources = sources.concat(collectSections(orig.id, visited));
+          // The originals themselves might have been joined — their parts may be in the preset
+          if(orig.parts){
+            for(const p of orig.parts){
+              sources = sources.concat(collectSections(p, visited));
+            }
+          }
+        }
+      }
+      // Original parent (split piece inheriting from joined parent)
+      if(t.originalJoined && t.originalJoined.id){
+        sources = sources.concat(collectSections(t.originalJoined.id, visited));
+        if(t.originalJoined.parts){
+          for(const p of t.originalJoined.parts){
+            sources = sources.concat(collectSections(p, visited));
+          }
+        }
+      }
+    }
+
+    // Special handling for synthesized IDs (e.g. "33b+43a" or "33a")
+    // Try to extract numeric prefix and see if that's in preset
+    const idStr = String(id);
+    if(/^\d+/.test(idStr)){
+      const numericPart = parseInt(idStr.match(/^\d+/)[0]);
+      for(const sec of Object.keys(preset)){
+        if(preset[sec].some(x => x === numericPart)){
+          sources.push(parseInt(sec));
+          break;
+        }
+      }
+    }
+    // For "A+B" style IDs, recurse on each side
+    if(idStr.includes('+')){
+      for(const piece of idStr.split('+')){
+        sources = sources.concat(collectSections(piece, visited));
+      }
+    }
+    return sources;
+  }
+
+  const sections = collectSections(tableId);
+  if(!sections.length) return null;
+
+  // Pick most-frequent section, tiebreak lowest section number
+  const counts = {};
+  sections.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+  const best = Object.keys(counts)
+    .map(k => ({sec:parseInt(k), n:counts[k]}))
+    .sort((a,b) => b.n - a.n || a.sec - b.sec)[0];
+  return best.sec;
+}
+function tableWaiter(tableId){
+  const sec = tableSection(tableId);
+  if(!sec) return null;
+  return state.sections.assignments[sec] || null;
+}
+
+function renderScoreboard(){
+  const board = $('#scoreboard');
+  if(!board) return;
+  const size = state.sections.shiftSize;
+  const assignments = state.sections.assignments || {};
+  const activeWaiters = Object.values(assignments).filter(Boolean);
+  if(!size || activeWaiters.length === 0){
+    board.classList.add('hidden');
+    board.innerHTML = '';
+    return;
+  }
+  board.classList.remove('hidden');
+
+  // For each waiter, count seated tables attributed to them
+  const colors = ['#5b8def','#2bb673','#e89c2a','#a14ad6'];
+  let html = '';
+  for(let i = 1; i <= size; i++){
+    const waiter = assignments[i];
+    if(!waiter) continue;
+    const seatedCount = state.seated.filter(id => {
+      const w = state.seatedBy[String(id)] || tableWaiter(id);
+      return w === waiter;
+    }).length;
+    // total tables in their section
+    const sectionTables = (SECTION_PRESETS[size]||{})[i] || [];
+    html += `
+      <div class="score-card" style="--sec:${colors[i-1]};">
+        <div class="swatch"></div>
+        <div class="name">${escapeHtml(waiter)}</div>
+        <div class="count">${seatedCount}</div>
+        <div class="open-count">/ ${sectionTables.length} tables</div>
+      </div>`;
+  }
+  board.innerHTML = html;
+}
+
+function openSections(){
+  $('#sectionsModal').classList.add('show');
+  // pre-fill current state
+  document.querySelectorAll('.sections-grid button').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.shift) === state.sections.shiftSize);
+  });
+  renderWaiterAssignments();
+}
+function closeSections(){
+  $('#sectionsModal').classList.remove('show');
+}
+
+let _draftShiftSize = 0;
+let _draftAssignments = {};
+
+function renderWaiterAssignments(){
+  const size = _draftShiftSize || state.sections.shiftSize || 0;
+  const current = Object.keys(_draftAssignments).length ? _draftAssignments : state.sections.assignments;
+
+  const wrap = $('#waiterAssignments');
+  if(!size){
+    wrap.innerHTML = `<p style="color:var(--muted);font-size:13px;margin:0;">Select a shift size above.</p>`;
+    $('#sectionSummary').textContent = '';
+    return;
+  }
+
+  let html = '';
+  for(let i = 1; i <= size; i++){
+    const preset = SECTION_PRESETS[size];
+    const tables = preset ? preset[i] : [];
+    const assigned = current[i] || '';
+    html += `
+      <div class="waiter-row">
+        <div class="waiter-swatch" style="background: var(--sec-${i});"></div>
+        <span class="label">Section ${i}</span>
+        <select data-section="${i}">
+          <option value="">— Unassigned —</option>
+          ${WAITERS.map(w => `<option value="${w}" ${assigned===w?'selected':''}>${w}</option>`).join('')}
+        </select>
+      </div>`;
+  }
+  wrap.innerHTML = html;
+
+  // Inject the section colors as CSS vars on the wrap (for swatches)
+  const colors = ['#5b8def','#2bb673','#e89c2a','#a14ad6'];
+  wrap.style.setProperty('--sec-1', colors[0]);
+  wrap.style.setProperty('--sec-2', colors[1]);
+  wrap.style.setProperty('--sec-3', colors[2]);
+  wrap.style.setProperty('--sec-4', colors[3]);
+
+  // Show summary of which tables are in each section
+  const preset = SECTION_PRESETS[size];
+  if(preset){
+    let sum = '';
+    for(let i = 1; i <= size; i++){
+      sum += `<div><strong style="color:${colors[i-1]}">§${i}:</strong> ${preset[i].join(', ')}</div>`;
+    }
+    $('#sectionSummary').innerHTML = sum;
+  }
+
+  // Wire up dropdowns
+  wrap.querySelectorAll('select').forEach(sel => {
+    sel.onchange = () => {
+      const sec = parseInt(sel.dataset.section);
+      const w = sel.value;
+      // If this waiter is already assigned to another section, unassign there
+      Object.keys(_draftAssignments).forEach(k => {
+        if(_draftAssignments[k] === w && parseInt(k) !== sec){
+          delete _draftAssignments[k];
+        }
+      });
+      if(w) _draftAssignments[sec] = w;
+      else delete _draftAssignments[sec];
+      renderWaiterAssignments();
+    };
+  });
+}
+
+$('#sectionsBtn').onclick = () => {
+  _draftShiftSize = state.sections.shiftSize || 0;
+  _draftAssignments = {...state.sections.assignments};
+  openSections();
+};
+
+$('#sectionsModal').onclick = e => {
+  if(e.target.id === 'sectionsModal') closeSections();
+};
+
+document.querySelectorAll('.sections-grid button').forEach(b => {
+  b.onclick = () => {
+    _draftShiftSize = parseInt(b.dataset.shift);
+    // Clear assignments that don't fit the new shift size
+    Object.keys(_draftAssignments).forEach(k => {
+      if(parseInt(k) > _draftShiftSize) delete _draftAssignments[k];
+    });
+    document.querySelectorAll('.sections-grid button').forEach(x => {
+      x.classList.toggle('active', parseInt(x.dataset.shift) === _draftShiftSize);
+    });
+    renderWaiterAssignments();
+  };
+});
+
+$('#sectionsCancel').onclick = closeSections;
+$('#sectionsSave').onclick = () => {
+  state.sections.shiftSize = _draftShiftSize;
+  state.sections.assignments = {..._draftAssignments};
+  save();
+  render(); // rebuild floor with section colors
+  closeSections();
+};
+$('#clearSections').onclick = () => {
+  if(!confirm('Clear all section assignments?')) return;
+  _draftShiftSize = 0;
+  _draftAssignments = {};
+  document.querySelectorAll('.sections-grid button').forEach(x => x.classList.remove('active'));
+  renderWaiterAssignments();
+};
+
+(async ()=>{
+  setDate();
+  setInterval(setDate, 60000);
+  await load();
+  render();
+  // initialize header waitlist count
+  const activeCount = state.waitlist.filter(g => g.status === 'waiting').length;
+  $('#waitCount').textContent = activeCount > 0 ? `(${activeCount})` : '';
+  updateResCountInHeader();
+})();
+</script>
+</body>
+</html>
