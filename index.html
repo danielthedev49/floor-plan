@@ -713,6 +713,19 @@
     .list-wrap, .shift-view { padding: 12px 14px; }
     .server-detail-stats { grid-template-columns: repeat(2, 1fr); }
   }
+
+  .t-last-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #DC2626;
+    box-shadow: 0 0 0 2px #fff, 0 0 6px rgba(220,38,38,0.55);
+    pointer-events: none;
+    z-index: 3;
+  }
 </style>
 </head>
 <body>
@@ -2268,6 +2281,7 @@ function renderFloor() {
       <div class="t-seats">${seatsText}</div>
       ${partyLine}
       ${serverTag}
+      ${(isShiftActive() && state.servers.some(sv => sv.lastTableId === t.id)) ? '<div class="t-last-dot" title="Most recent seat"></div>' : ''}
       ${state.editing ? '<div class="resize-handle"></div>' : ''}
     `;
 
@@ -2632,7 +2646,7 @@ function seatWalkInAtTable(tableId) {
   // PRIMARY table's section's server (one combo = one rotation tick).
   if (isShiftActive()) {
     if (resolvedServer) {
-      markSeated(resolvedServer.id);
+      markSeated(resolvedServer.id, primary.id);
       recordLastSeat({ tableId: primary.id, serverId: resolvedServer.id });
     }
     // (no else — non-floater with no server is a configuration gap, not a skip event)
@@ -2783,7 +2797,7 @@ function applyFloaterSeat(tableId, serverId, forWalkIn) {
     }
   }
   // 2) The chosen server gets credit: clears their own skip, updates lastSeatedAt
-  markSeated(serverId);
+  markSeated(serverId, tableId);
   // 3) Record for undo
   recordLastSeat({ tableId, serverId, waitlistId: undoWaitlistId, resId: undoResId, skippedServerIds });
 
@@ -2924,7 +2938,7 @@ function confirmSeatAtTable(tableId) {
           }
         }
       }
-      markSeated(targetSrv.id);
+      markSeated(targetSrv.id, primaryId);
       targetSrv.covers = (targetSrv.covers || 0) + partySize;
       // Record for undo
       recordLastSeat({
@@ -2949,10 +2963,11 @@ function confirmSeatAtTable(tableId) {
 
 // Mark a server as having gotten a seat (clears any skip state on them)
 // Also increments the running total of tables they've handled this shift.
-function markSeated(serverId) {
+function markSeated(serverId, tableId) {
   const s = getServerById(serverId);
   if (!s) return;
   s.lastSeatedAt = Date.now();
+  s.lastTableId = tableId || s.lastTableId || '';
   s.skippedAt = ''; // clear skip
   s.tablesTotal = (s.tablesTotal || 0) + 1;
 }
@@ -2985,6 +3000,7 @@ function recordLastSeat({ tableId, serverId, waitlistId, resId, skippedServerIds
     skippedServerIds: skippedServerIds || [],
     prevTablesTotal: srv ? (srv.tablesTotal || 0) - 1 : 0,
     prevLastSeatedAt: srv ? srv.lastSeatedAt : '',
+    prevLastTableId: srv ? (srv.lastTableId || '') : '',
     ts: Date.now(),
   };
   renderUndoBar();
@@ -3016,6 +3032,7 @@ function undoLastSeat() {
   if (srv) {
     srv.tablesTotal = ls.prevTablesTotal;
     srv.lastSeatedAt = ls.prevLastSeatedAt;
+    srv.lastTableId = ls.prevLastTableId;
   }
   // Restore any servers we marked skipped during this seat
   (ls.skippedServerIds || []).forEach(id => {
@@ -3379,7 +3396,7 @@ function confirmMoveToTable(toTableId) {
     markSkipped(oldSrv.id);
   }
   if (isShiftActive() && newSrv) {
-    markSeated(newSrv.id); // they now "served" this table
+    markSeated(newSrv.id, toTableId); // they now "served" this table
   }
 
   state.dirty = true;
