@@ -714,17 +714,10 @@
     .server-detail-stats { grid-template-columns: repeat(2, 1fr); }
   }
 
-  .t-last-dot {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: #DC2626;
-    box-shadow: 0 0 0 2px #fff, 0 0 6px rgba(220,38,38,0.55);
-    pointer-events: none;
-    z-index: 3;
+  .table-el.is-last-seat {
+    outline: 3px solid #DC2626;
+    outline-offset: -1px;
+    box-shadow: var(--shadow), 0 0 8px rgba(220,38,38,0.45);
   }
 </style>
 </head>
@@ -2224,6 +2217,7 @@ function renderFloor() {
 
     if (state.editing) classes.push('editing');
     if (isLeftoverTable(t)) classes.push('leftover');
+    if (isShiftActive() && state.servers.some(sv => sv.lastTableId === t.id)) classes.push('is-last-seat');
     // Combo indicator: tables in a combo group get a colored halo + chain badge.
     if (isInCombo(t.id)) {
       classes.push('in-combo');
@@ -2288,7 +2282,6 @@ function renderFloor() {
       <div class="t-seats">${seatsText}</div>
       ${partyLine}
       ${serverTag}
-      ${(isShiftActive() && state.servers.some(sv => sv.lastTableId === t.id)) ? '<div class="t-last-dot" title="Most recent seat"></div>' : ''}
       ${state.editing ? '<div class="resize-handle"></div>' : ''}
     `;
 
