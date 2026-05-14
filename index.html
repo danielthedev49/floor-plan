@@ -1382,7 +1382,14 @@ async function pull() {
       state.waitlist     = data.waitlist     || [];
       state.reservations = data.reservations || [];
       state.layouts      = data.layouts      || [];
-      state.servers      = data.servers      || [];
+      (() => {
+        const prevLastTable = new Map((state.servers || []).map(s => [s.id, s.lastTableId || '']));
+        state.servers = (data.servers || []).map(s => {
+          const prev = prevLastTable.get(s.id);
+          if (prev && !s.lastTableId) s.lastTableId = prev;
+          return s;
+        });
+      })();
       state.shift        = data.shift        || [];
       // Clean up any reservations whose date/time were stored as ISO timestamps
       // or other junk. Push back to the sheet so the fix sticks.
