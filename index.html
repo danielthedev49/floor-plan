@@ -1,0 +1,4184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Los Amigos · Seating</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=DM+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4ede0;
+    --bg-2: #ebe1cd;
+    --ink: #1a1410;
+    --ink-soft: #4a3f33;
+    --paper: #fefaf2;
+    --accent: #c2410c;
+    --accent-deep: #7c2d12;
+    --green: #3f6212;
+    --gold: #b45309;
+    --slate: #57534e;
+    --warn: #b91c1c;
+    --shadow: 0 1px 0 rgba(26,20,16,.08), 0 8px 24px -12px rgba(26,20,16,.25);
+    /* Section colors — soft, modern, transparent */
+    --sec-1: 99, 102, 241;       /* indigo */
+    --sec-2: 16, 185, 129;       /* emerald */
+    --sec-3: 244, 114, 182;      /* pink */
+    --sec-4: 245, 158, 11;       /* amber */
+    --sec-floater: 148, 163, 184; /* slate */
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(194,65,12,.04) 0%, transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(180,83,9,.05) 0%, transparent 50%);
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+  /* UNIFIED TOP BAR (header + tabs collapsed into one row) */
+  .topbar {
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 12px;
+    border-bottom: 1px solid rgba(26,20,16,.12);
+    background: var(--bg);
+    min-height: 38px;
+  }
+  .topbar .brand {
+    font-family: 'Fraunces', serif; font-weight: 900; font-size: 16px;
+    letter-spacing: -0.02em; line-height: 1; font-style: italic;
+    margin-right: 6px; white-space: nowrap;
+  }
+  .topbar .tabs-inline {
+    display: flex; align-items: center; gap: 0;
+    overflow-x: auto;
+    flex: 1 1 auto; min-width: 0;
+    /* hide scrollbar on Chrome/Safari/Firefox */
+    scrollbar-width: none;
+  }
+  .topbar .tabs-inline::-webkit-scrollbar { display: none; }
+  .topbar .tab {
+    background: transparent; border: 0;
+    padding: 9px 10px 8px;
+    font-family: 'Fraunces', serif; font-weight: 500; font-size: 13px;
+    color: var(--ink-soft); cursor: pointer;
+    border-bottom: 2px solid transparent;
+    display: inline-flex; align-items: center; gap: 5px;
+    transition: color .15s; white-space: nowrap;
+    line-height: 1;
+  }
+  .topbar .tab .count {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    background: rgba(26,20,16,.08); padding: 1px 5px; border-radius: 99px; font-weight: 500;
+  }
+  .topbar .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .topbar .tab.active .count { background: var(--accent); color: var(--paper); }
+  .topbar .topbar-right {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0;
+  }
+  .sync-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 0 3px rgba(63,98,18,.15);
+  }
+  .sync-dot.stale { background: var(--gold); box-shadow: 0 0 0 3px rgba(180,83,9,.18); }
+  .sync-dot.error { background: var(--accent); box-shadow: 0 0 0 3px rgba(194,65,12,.18); }
+  .settings-btn {
+    background: transparent; border: 1px solid rgba(26,20,16,.2); color: var(--ink);
+    padding: 4px 8px; border-radius: 4px; font-family: 'DM Mono', monospace;
+    font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+    line-height: 1;
+  }
+  .settings-btn:hover { background: var(--ink); color: var(--paper); }
+  #managerBtn.unlocked { background: var(--warn); border-color: var(--warn); color: var(--paper); }
+  #managerBtn.unlocked::before { content: '🔓 '; }
+
+  /* Hide brand text on very small screens — tabs make it obvious what app we're in. */
+  @media (max-width: 480px) {
+    .topbar .brand { display: none; }
+    .topbar { padding: 0 8px; }
+    .topbar .tab { padding: 9px 7px 8px; font-size: 12px; }
+    .settings-btn { padding: 4px 6px; font-size: 8px; }
+  }
+
+  main { flex: 1; overflow: hidden; position: relative; }
+  .view { display: none; height: 100%; overflow: auto; }
+  .view.active { display: flex; flex-direction: column; }
+
+  /* ============ SHIFT BAR (above floor when active) ============ */
+  .shift-bar {
+    background: var(--ink); color: var(--paper);
+    padding: 5px 12px;
+    display: flex; gap: 6px; overflow-x: auto;
+    align-items: stretch;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .shift-bar.empty { padding: 8px 14px; display: block; }
+  .shift-bar.empty .empty-msg {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,.65);
+  }
+  .shift-bar.empty .empty-msg a { color: var(--paper); text-decoration: underline; cursor: pointer; }
+
+  .server-card {
+    flex: 0 0 auto; min-width: 0;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 6px;
+    padding: 4px 9px;
+    position: relative;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+    display: flex; align-items: center; gap: 8px;
+    line-height: 1.1;
+  }
+  .server-card .sc-slim-name {
+    font-family: 'Fraunces', serif; font-weight: 700; font-size: 14px;
+    white-space: nowrap;
+  }
+  .server-card .sc-slim-count {
+    font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 600;
+    background: rgba(255,255,255,.14); padding: 2px 7px; border-radius: 10px;
+    min-width: 22px; text-align: center;
+  }
+  .server-card .sc-slim-next-mark {
+    font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    background: var(--paper); color: var(--ink);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .server-card:hover { background: rgba(255,255,255,.1); }
+  .server-card.next-up { background: var(--accent); border-color: var(--accent); }
+  .server-card.skipped { background: var(--warn); border-color: var(--warn); }
+  .server-card.next-up.skipped { background: linear-gradient(135deg, var(--warn) 0%, var(--accent) 100%); }
+  .server-card.on-break-card {
+    background: rgba(180, 83, 9, 0.18);
+    border: 1px solid rgba(180, 83, 9, 0.45);
+    border-style: dashed;
+    opacity: 0.88;
+  }
+  .break-divider {
+    flex: 1 1 auto;
+    min-width: 16px;
+    align-self: stretch;
+    border-left: 1px dashed rgba(255,255,255,0.18);
+    margin: 4px 0 4px 8px;
+  }
+
+  /* Undo last seat bar — floats on the floor map so it doesn't push tables out of view. */
+  .undo-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(26, 20, 16, 0.94);
+    color: var(--paper);
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.18);
+    font-family: 'Inter Tight', sans-serif; font-size: 13px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.35);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    max-width: calc(100% - 24px);
+    animation: undo-slide-in 0.25s ease-out;
+  }
+  @keyframes undo-slide-in {
+    from { transform: translate(-50%, 30px); opacity: 0; }
+    to   { transform: translate(-50%, 0);    opacity: 1; }
+  }
+  .undo-bar .ub-text {
+    flex: 1 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .undo-bar .ub-timer {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    background: rgba(255,255,255,.14); padding: 2px 7px; border-radius: 999px;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+  .undo-bar .ub-btn {
+    background: var(--accent); color: var(--paper); border: 0;
+    padding: 5px 12px; border-radius: 999px;
+    font-family: 'Inter Tight', sans-serif; font-weight: 600; font-size: 12px;
+    cursor: pointer;
+    transition: background .15s;
+    flex-shrink: 0;
+  }
+  .undo-bar .ub-btn:hover { background: var(--accent-deep); }
+  /* Tighter on phones so it doesn't crowd the floor */
+  @media (max-width: 480px) {
+    .undo-bar { font-size: 12px; padding: 7px 10px; gap: 7px; bottom: 10px; }
+    .undo-bar .ub-btn { padding: 4px 9px; font-size: 11px; }
+  }
+  .server-card.selected { outline: 2px solid var(--paper); outline-offset: 2px; }
+
+  .sc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
+  .sc-name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; line-height: 1.1; }
+  .sc-section {
+    font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500;
+    background: rgba(255,255,255,.18); padding: 2px 6px; border-radius: 3px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .sc-stats { display: flex; gap: 10px; font-family: 'DM Mono', monospace; font-size: 11px; opacity: .9; }
+  .sc-stat { display: flex; flex-direction: column; line-height: 1.1; }
+  .sc-stat .v { font-size: 14px; font-weight: 500; }
+  .sc-stat .l { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; opacity: .6; }
+  .sc-badge {
+    position: absolute; top: -7px; right: -7px;
+    background: var(--paper); color: var(--ink);
+    font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 3px; letter-spacing: 0.08em;
+    text-transform: uppercase; box-shadow: 0 2px 4px rgba(0,0,0,.2);
+  }
+  .sc-skipped-tag { color: var(--warn); }
+  .sc-meta { font-family: 'DM Mono', monospace; font-size: 9px; opacity: .55; margin-top: 4px; letter-spacing: 0.05em; }
+
+  /* ============ FLOOR ============ */
+  /* The floor toolbar still exists for non-floor views that reuse the class.
+     On the floor view we hide it (#view-floor .floor-toolbar) and float its
+     pieces directly on top of the map so they don't eat vertical space. */
+  .floor-toolbar {
+    display: flex; gap: 6px; padding: 4px 14px;
+    border-bottom: 1px solid rgba(26,20,16,.08); flex-wrap: wrap;
+    align-items: center;
+    min-height: 28px;
+  }
+  #view-floor > .floor-toolbar { display: none; }
+  .floor-toolbar .label-mono {
+    font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--ink-soft); margin-right: 8px;
+  }
+
+  /* Floating floor overlays — these sit on top of the map, no vertical cost. */
+  .floor-overlay {
+    position: absolute; z-index: 40;
+    pointer-events: none; /* container itself is click-through; children re-enable */
+  }
+  .floor-overlay > * { pointer-events: auto; }
+  .floor-overlay-top-left  { top: 8px; left: 8px; max-width: 60%; }
+  .floor-overlay-top-right { top: 8px; right: 8px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 70%; }
+  .floor-overlay .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(254, 250, 242, 0.92);
+    border: 1px solid rgba(26,20,16,.18);
+    border-radius: 99px;
+    padding: 4px 10px;
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--ink);
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .floor-overlay .pill.mono-label {
+    color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.15em;
+  }
+  .floor-overlay .floor-overlay-btn {
+    background: rgba(254, 250, 242, 0.92);
+    border: 1px solid rgba(26,20,16,.22);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink); cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .floor-overlay .floor-overlay-btn:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .floor-overlay .floor-overlay-btn.manager-only { display: none; }
+  body.manager-on .floor-overlay .floor-overlay-btn.manager-only { display: inline-block; }
+  /* Section legend pill stacks below the status pill if both are visible */
+  .floor-overlay-top-left .pill + .pill,
+  .floor-overlay-top-left .pill + .section-legend-row { margin-top: 6px; }
+  .floor-overlay-top-left .section-legend-row {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .floor { flex: 1; position: relative; overflow: hidden; background: var(--paper);
+    background-image:
+      linear-gradient(rgba(26,20,16,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(26,20,16,.04) 1px, transparent 1px);
+    background-size: 40px 40px; cursor: default;
+    touch-action: none; /* we handle pinch/pan ourselves */
+  }
+  .floor.editing { cursor: crosshair; }
+  .floor.assigning { cursor: pointer; }
+  /* Inner canvas at fixed pixel size; the wrapper scales it via CSS transform. */
+  .floor-inner {
+    position: absolute;
+    top: 0; left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  /* Zoom controls overlay — pinned in the floor's bottom-right.
+     Made highly visible and robust against different mobile browsers. */
+  .floor-zoom-controls {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 50;
+    pointer-events: auto;
+  }
+  .floor-zoom-controls button {
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    color: var(--ink);
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    font-size: 22px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-family: 'DM Mono', monospace;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .floor-zoom-controls button:active { background: var(--ink); color: var(--paper); }
+  .floor-zoom-controls .zc-reset { font-size: 12px; letter-spacing: .05em; }
+
+  .table-el {
+    position: absolute;
+    background: var(--paper); border: 2px solid var(--ink);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    user-select: none; touch-action: none;
+    box-shadow: var(--shadow);
+    transition: background .12s, transform .12s;
+  }
+  .table-el.shape-circle { border-radius: 50%; }
+  .table-el.shape-square { border-radius: 6px; }
+  .table-el.shape-booth { border-radius: 4px; border-style: double; border-width: 5px; }
+  .table-el.status-open { background: var(--paper); }
+  .table-el.status-seated {
+    background: #e8c4a0;
+    color: #4a2f1a;
+    border-color: #c89878;
+  }
+  .table-el.status-reserved { background: #1a1410; color: var(--paper); }
+  .table-el.dim { opacity: .35; }
+  .table-el.highlight { box-shadow: 0 0 0 4px var(--gold), var(--shadow); }
+
+  .table-el .t-label { font-family: 'Fraunces', serif; font-weight: 700; font-size: 18px; line-height: 1; }
+
+  /* Combo (pushed-together tables for one party) */
+  .table-el.in-combo {
+    box-shadow:
+      0 0 0 3px rgba(194, 65, 12, 0.55), /* warm orange halo — accent */
+      var(--shadow);
+  }
+  .table-el.in-combo.combo-primary {
+    box-shadow:
+      0 0 0 3px rgba(194, 65, 12, 0.85),
+      0 0 0 6px rgba(194, 65, 12, 0.18),
+      var(--shadow);
+  }
+  .table-el.combo-pending-primary {
+    animation: combo-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes combo-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.85), 0 0 0 6px rgba(194, 65, 12, 0.18), var(--shadow); }
+    50%      { box-shadow: 0 0 0 3px rgba(194, 65, 12, 1.0),  0 0 0 10px rgba(194, 65, 12, 0.30), var(--shadow); }
+  }
+  /* (combo badge removed — we draw connector lines on the floor instead) */
+  .table-el .t-seats { font-family: 'DM Mono', monospace; font-size: 10px; opacity: .75; margin-top: 2px; }
+  .table-el .t-party {
+    font-family: 'Inter Tight', sans-serif; font-weight: 600; font-size: 11px;
+    margin-top: 2px; max-width: 100%; padding: 0 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    opacity: 0.95;
+  }
+  .table-el .t-server-tag {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    margin-top: 3px; opacity: .85; letter-spacing: 0.05em; max-width: 100%; padding: 0 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .table-el .section-badge {
+    position: absolute; top: 4px; left: 4px;
+    width: 18px; height: 18px; border-radius: 3px;
+    background: rgb(var(--sec-1)); color: white;
+    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+  }
+  .table-el .section-badge.s2 { background: rgb(var(--sec-2)); }
+  .table-el .section-badge.s3 { background: rgb(var(--sec-3)); }
+  .table-el .section-badge.s4 { background: rgb(var(--sec-4)); }
+  .table-el .section-badge.floater { background: rgb(var(--sec-floater)); }
+
+  /* Blink animations: whole-table soft breathing with shaded background */
+  /* Per-section breathing for next-up (calm) and skipped (urgent). */
+  @keyframes breathe-bg-1-next     { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-1), 0.55); } }
+  @keyframes breathe-bg-2-next     { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-2), 0.55); } }
+  @keyframes breathe-bg-3-next     { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-3), 0.55); } }
+  @keyframes breathe-bg-4-next     { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-4), 0.55); } }
+  @keyframes breathe-bg-1-skipped  { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-1), 0.75); } }
+  @keyframes breathe-bg-2-skipped  { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-2), 0.75); } }
+  @keyframes breathe-bg-3-skipped  { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-3), 0.75); } }
+  @keyframes breathe-bg-4-skipped  { 0%,100% { background: var(--paper); } 50% { background: rgba(var(--sec-4), 0.75); } }
+
+  /* Next-up: calm 2.4s pulse */
+  .table-el.status-open.sec-1.is-next { animation: breathe-bg-1-next 2.4s ease-in-out infinite; }
+  .table-el.status-open.sec-2.is-next { animation: breathe-bg-2-next 2.4s ease-in-out infinite; }
+  .table-el.status-open.sec-3.is-next { animation: breathe-bg-3-next 2.4s ease-in-out infinite; }
+  .table-el.status-open.sec-4.is-next { animation: breathe-bg-4-next 2.4s ease-in-out infinite; }
+
+  /* Skipped: urgent 1.4s pulse, deeper saturation */
+  .table-el.status-open.sec-1.is-skipped { animation: breathe-bg-1-skipped 1.4s ease-in-out infinite; }
+  .table-el.status-open.sec-2.is-skipped { animation: breathe-bg-2-skipped 1.4s ease-in-out infinite; }
+  .table-el.status-open.sec-3.is-skipped { animation: breathe-bg-3-skipped 1.4s ease-in-out infinite; }
+  .table-el.status-open.sec-4.is-skipped { animation: breathe-bg-4-skipped 1.4s ease-in-out infinite; }
+
+  /* On-deck = 2nd in queue — steady thicker outline, no breathing */
+  .table-el.is-ondeck { border-width: 3px; }
+
+  /* Leftover tables from a previous shift — faded so the host knows they're carryover */
+  .table-el.leftover {
+    opacity: 0.45;
+    filter: saturate(0.6);
+    animation: none !important; /* override any breathing from is-next/is-skipped */
+  }
+  .table-el.leftover::after {
+    content: 'prev';
+    position: absolute;
+    top: 4px; right: 4px;
+    background: rgba(0,0,0,0.55);
+    color: var(--paper);
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 2px;
+    pointer-events: none;
+  }
+
+  /* Legend text tags */
+  @keyframes text-breathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+  }
+  .legend-tag-next    { color: var(--accent); font-weight: 700; animation: text-breathe 2.4s ease-in-out infinite; }
+  .legend-tag-skipped { color: var(--warn);   font-weight: 700; animation: text-breathe 1.6s ease-in-out infinite; }
+  .legend-tag-skipped-quiet { color: var(--warn); font-weight: 600; opacity: 0.85; }
+
+  /* Open tables get a colored outline showing which section they belong to (no fill). */
+  .table-el.status-open.sec-1 { border-color: rgb(var(--sec-1)); }
+  .table-el.status-open.sec-2 { border-color: rgb(var(--sec-2)); }
+  .table-el.status-open.sec-3 { border-color: rgb(var(--sec-3)); }
+  .table-el.status-open.sec-4 { border-color: rgb(var(--sec-4)); }
+  .table-el.status-open.sec-floater { border-color: rgb(var(--sec-floater)); border-style: dotted; }
+  .table-el.editing { outline: 2px dashed var(--accent); outline-offset: 4px; cursor: move; }
+  .resize-handle {
+    position: absolute; bottom: -8px; right: -8px; width: 18px; height: 18px;
+    background: var(--accent); border: 2px solid var(--paper); border-radius: 50%;
+    cursor: nwse-resize; display: none;
+  }
+  .table-el.editing .resize-handle { display: block; }
+
+  .floor-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; color: var(--ink-soft); pointer-events: none;
+  }
+  .floor-empty h3 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 22px; margin: 0; font-style: italic; }
+  .floor-empty p { margin: 0; font-size: 13px; }
+
+  /* ============ BUTTONS ============ */
+  .btn {
+    font-family: 'Inter Tight', sans-serif; font-weight: 600; font-size: 13px;
+    padding: 8px 14px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
+    transition: all .12s;
+  }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+  .btn-primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+  .btn-ghost { border-color: rgba(26,20,16,.2); }
+  .btn-warn { border-color: var(--warn); color: var(--warn); }
+  .btn-warn:hover { background: var(--warn); color: var(--paper); }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+  .btn-mono { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* ============ LISTS ============ */
+  .list-wrap { padding: 16px 22px; max-width: 900px; margin: 0 auto; width: 100%; }
+  .add-form {
+    background: var(--paper); border: 1px solid rgba(26,20,16,.15); border-radius: 6px;
+    padding: 14px 16px; margin-bottom: 18px; box-shadow: var(--shadow);
+  }
+  .add-form h3 { margin: 0 0 10px; font-family: 'Fraunces', serif; font-weight: 500; font-size: 16px; font-style: italic; }
+  .form-row { display: grid; grid-template-columns: 1fr 90px 1fr; gap: 8px; margin-bottom: 8px; }
+  .form-row.three-time { grid-template-columns: 1fr 80px 110px; }
+  .form-row.full { grid-template-columns: 1fr; }
+  .form-row.actions { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 0; margin-top: 4px; }
+  input, textarea, select {
+    font-family: 'Inter Tight', sans-serif; font-size: 14px;
+    padding: 8px 10px; border: 1px solid rgba(26,20,16,.2); border-radius: 4px;
+    background: var(--bg); color: var(--ink); outline: none; width: 100%;
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); background: var(--paper); }
+
+  .list-section-title {
+    font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--ink-soft); margin: 18px 0 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .list-section-title::after { content: ''; flex: 1; height: 1px; background: rgba(26,20,16,.15); }
+
+  .party-card {
+    background: var(--paper); border: 1px solid rgba(26,20,16,.12);
+    border-left: 4px solid var(--accent);
+    border-radius: 4px; padding: 12px 14px; margin-bottom: 8px;
+    display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;
+  }
+  .party-card.done { opacity: .55; border-left-color: var(--slate); }
+  .party-card.walked { border-left-color: var(--warn); }
+  .party-card .p-main { display: flex; flex-direction: column; gap: 2px; }
+  .party-card .p-name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 17px; line-height: 1.1; }
+  .party-card .p-meta { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-soft); display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+  .party-card .p-meta .pill { background: var(--bg-2); padding: 2px 7px; border-radius: 3px; }
+  .party-card .p-meta .pill.size { background: var(--ink); color: var(--paper); }
+  .party-card .p-meta .pill.wait { background: var(--accent); color: var(--paper); }
+  .party-card .p-meta .pill.wait.long { background: var(--accent-deep); }
+  .party-card .p-notes { margin-top: 4px; font-size: 12px; color: var(--ink-soft); font-style: italic; }
+  .party-card .p-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* ============ MODALS ============ */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(26,20,16,.5); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: var(--paper); border-radius: 8px; padding: 22px 24px;
+    max-width: 560px; width: 100%; max-height: 90vh; overflow: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  }
+  .modal h2 { font-family: 'Fraunces', serif; font-style: italic; font-weight: 700; margin: 0 0 6px; font-size: 24px; }
+  .modal p { color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+  .modal label { display: block; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; margin: 14px 0 6px; color: var(--ink-soft); }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+  .modal code { font-family: 'DM Mono', monospace; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--paper); padding: 10px 16px;
+    border-radius: 4px; font-size: 13px; z-index: 200;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+    font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .toast.show { opacity: 1; }
+
+  .empty-state { padding: 40px 20px; text-align: center; color: var(--ink-soft); font-style: italic; font-family: 'Fraunces', serif; }
+
+  /* PICKERS */
+  .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; margin-top: 8px; }
+  .picker-table {
+    aspect-ratio: 1; border: 2px solid var(--ink); border-radius: 4px;
+    background: var(--paper); cursor: pointer; padding: 4px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'Fraunces', serif; font-weight: 700;
+    position: relative;
+  }
+  .picker-table:hover { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  .picker-table .ps { font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 400; opacity: .7; }
+  .picker-table .pserver { font-family: 'DM Mono', monospace; font-size: 8px; font-weight: 500; opacity: .85; margin-top: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .picker-table.recommended {
+    border-color: var(--green);
+    box-shadow: 0 0 0 2px rgba(63,98,18,.2);
+  }
+  .picker-table .rec-tag {
+    position: absolute; top: -8px; right: -8px;
+    background: var(--green); color: var(--paper);
+    font-family: 'DM Mono', monospace; font-size: 8px; font-weight: 700;
+    padding: 2px 5px; border-radius: 3px; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .picker-table .sec-marker {
+    position: absolute; top: 3px; left: 3px;
+    width: 14px; height: 14px; border-radius: 2px;
+    font-family: 'DM Mono', monospace; font-size: 9px; color: white;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
+    background: rgb(var(--sec-1));
+  }
+  .picker-table .sec-marker.s2 { background: rgb(var(--sec-2)); }
+  .picker-table .sec-marker.s3 { background: rgb(var(--sec-3)); }
+  .picker-table .sec-marker.s4 { background: rgb(var(--sec-4)); }
+  .picker-table .sec-marker.floater { background: rgb(var(--sec-floater)); }
+
+  /* SHIFT VIEW */
+  .shift-view { padding: 22px; max-width: 720px; margin: 0 auto; width: 100%; }
+  .shift-view h2 { font-family: 'Fraunces', serif; font-style: italic; font-weight: 700; margin: 0 0 6px; font-size: 28px; }
+  .shift-view .lead { color: var(--ink-soft); font-size: 14px; margin-bottom: 18px; }
+  .layout-picker {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 22px;
+  }
+  .layout-card {
+    background: var(--paper); border: 1px solid rgba(26,20,16,.15); border-radius: 6px;
+    padding: 14px; cursor: pointer; transition: all .15s; box-shadow: var(--shadow);
+    text-align: left;
+  }
+  .layout-card:hover { border-color: var(--accent); }
+  .layout-card.selected { border-color: var(--accent); border-width: 2px; padding: 13px; background: linear-gradient(135deg, var(--paper) 0%, rgba(194,65,12,.08) 100%); }
+  .layout-card .lc-name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; margin-bottom: 2px; }
+  .layout-card .lc-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--ink-soft); letter-spacing: 0.1em; text-transform: uppercase; }
+  .layout-card .lc-actions { margin-top: 8px; display: flex; gap: 4px; }
+
+  .server-roster { display: grid; gap: 8px; }
+  .roster-row {
+    display: grid; grid-template-columns: 1fr 130px 36px; gap: 8px; align-items: center;
+    background: var(--paper); border: 1px solid rgba(26,20,16,.12);
+    border-radius: 4px; padding: 8px 10px;
+  }
+  .roster-row input { padding: 6px 8px; font-size: 13px; }
+  .roster-row select { padding: 6px 8px; font-size: 13px; }
+  .roster-row .x { background: transparent; border: 0; cursor: pointer; color: var(--warn); font-size: 18px; padding: 4px; }
+
+  /* Section legend on Floor */
+  .section-legend {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    font-family: 'DM Mono', monospace; font-size: 10px; color: var(--ink-soft);
+    letter-spacing: 0.05em;
+  }
+  .section-legend .leg { display: flex; align-items: center; gap: 4px; }
+  .section-legend .leg .swatch { width: 12px; height: 12px; border-radius: 2px; background: rgb(var(--sec-1)); }
+  .section-legend .leg.s2 .swatch { background: rgb(var(--sec-2)); }
+  .section-legend .leg.s3 .swatch { background: rgb(var(--sec-3)); }
+  .section-legend .leg.s4 .swatch { background: rgb(var(--sec-4)); }
+  .section-legend .leg.floater .swatch { background: rgb(var(--sec-floater)); }
+
+  /* Open Floor toggle */
+  .open-floor-toggle {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--paper); border: 1px solid rgba(26,20,16,.15);
+    border-radius: 6px; padding: 14px 16px; margin-bottom: 22px;
+    box-shadow: var(--shadow);
+  }
+  .open-floor-toggle .oft-label strong { font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; }
+  .open-floor-toggle .oft-label .oft-desc { display: block; font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+  .oft-switch { position: relative; display: inline-block; width: 50px; height: 28px; flex: 0 0 auto; cursor: pointer; }
+  .oft-switch input { opacity: 0; width: 0; height: 0; }
+  .oft-slider {
+    position: absolute; inset: 0;
+    background: rgba(26,20,16,.2); border-radius: 28px;
+    transition: background .2s;
+  }
+  .oft-slider::before {
+    content: ''; position: absolute;
+    width: 22px; height: 22px; left: 3px; top: 3px;
+    background: var(--paper); border-radius: 50%;
+    transition: transform .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  }
+  .oft-switch input:checked + .oft-slider { background: var(--accent); }
+  .oft-switch input:checked + .oft-slider::before { transform: translateX(22px); }
+
+  .layouts-help {
+    background: var(--bg-2); border-radius: 4px; padding: 10px 12px;
+    font-size: 12px; color: var(--ink-soft); margin-bottom: 16px;
+    border-left: 3px solid var(--accent);
+  }
+    background: var(--bg-2); border-radius: 4px; padding: 10px 12px;
+    font-size: 12px; color: var(--ink-soft); margin-bottom: 16px;
+    border-left: 3px solid var(--accent);
+  }
+
+  /* Server detail modal */
+  .server-detail-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+  .stat-block {
+    background: var(--bg-2); border-radius: 4px; padding: 10px;
+    text-align: center;
+  }
+  .stat-block .v { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22px; line-height: 1; }
+  .stat-block .l { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); margin-top: 4px; }
+  .stat-block.warn .v { color: var(--warn); }
+
+  @media (max-width: 600px) {
+    .form-row, .form-row.three-time { grid-template-columns: 1fr 1fr; }
+    .floor-toolbar { padding: 8px 14px; }
+    .list-wrap, .shift-view { padding: 12px 14px; }
+    .server-detail-stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ONE SLIM TOP BAR: brand + tabs + sync + Manager + Settings, all in one row -->
+  <div class="topbar">
+    <div class="brand">Los Amigos</div>
+    <nav class="tabs-inline" aria-label="Main navigation">
+      <button class="tab active" data-view="floor">Floor <span class="count" id="cntTables">0</span></button>
+      <button class="tab" data-view="waitlist">Waitlist <span class="count" id="cntWait">0</span></button>
+      <button class="tab" data-view="reservations">Reservations <span class="count" id="cntRes">0</span></button>
+      <button class="tab" data-view="shift">Shift <span class="count" id="cntServers">0</span></button>
+      <button class="tab" data-view="layouts">Layouts</button>
+    </nav>
+    <div class="topbar-right">
+      <span class="sync-dot" id="syncDot" title="Sync status"></span>
+      <span id="syncText" style="display:none"></span>
+      <button class="settings-btn" id="managerBtn" onclick="openManagerModal()">Manager</button>
+      <button class="settings-btn" id="settingsBtn" onclick="openSettings()">Settings</button>
+    </div>
+  </div>
+
+  <main>
+    <!-- ============ FLOOR ============ -->
+    <section class="view active" id="view-floor">
+      <div id="shiftBar" class="shift-bar empty">
+        <div class="empty-msg">No shift active. <a onclick="goToView('shift')">Start a shift →</a></div>
+      </div>
+      <div class="floor" id="floor">
+        <div class="floor-inner" id="floorInner"></div>
+        <div class="floor-empty" id="floorEmpty">
+          <h3>Empty floor</h3>
+          <p>Add your first table to begin.</p>
+        </div>
+
+        <!-- TOP-LEFT OVERLAY: status hint + section legend (only when shift is active) -->
+        <div class="floor-overlay floor-overlay-top-left">
+          <span class="pill mono-label" id="floorLegend">Tap a table to act</span>
+          <div class="section-legend-row"><span class="section-legend" id="sectionLegend"></span></div>
+        </div>
+
+        <!-- TOP-RIGHT OVERLAY: manager-only floor actions (hidden until Manager mode is on) -->
+        <div class="floor-overlay floor-overlay-top-right">
+          <button class="floor-overlay-btn manager-only" id="addTableBtn">+ Table</button>
+          <button class="floor-overlay-btn manager-only" id="editLayoutBtn">Edit Layout</button>
+          <button class="floor-overlay-btn manager-only" id="fillCanvasBtn" onclick="fillCanvas()">Fill canvas</button>
+        </div>
+
+        <div class="floor-zoom-controls">
+          <button onclick="floorZoom(1.25)" title="Zoom in">+</button>
+          <button onclick="floorZoom(0.8)" title="Zoom out">−</button>
+          <button class="zc-reset" onclick="floorZoomReset()" title="Fit to screen">Fit</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ WAITLIST ============ -->
+    <section class="view" id="view-waitlist">
+      <div class="list-wrap">
+        <div class="add-form">
+          <h3>Add to waitlist</h3>
+          <div class="form-row">
+            <input id="wName" placeholder="Guest name" autocomplete="off">
+            <input id="wSize" type="number" min="1" max="20" placeholder="Party" value="2">
+            <input id="wPhone" placeholder="Phone (optional)" autocomplete="off">
+          </div>
+          <div class="form-row full">
+            <input id="wNotes" placeholder="Notes (high chair, allergy, booth pref…)" autocomplete="off">
+          </div>
+          <div class="form-row actions">
+            <button class="btn btn-primary btn-sm" onclick="addToWaitlist()">Add party</button>
+          </div>
+        </div>
+        <div class="list-section-title">Waiting</div>
+        <div id="waitlistActive"></div>
+        <div class="list-section-title">Recently seated / walked</div>
+        <div id="waitlistDone"></div>
+      </div>
+    </section>
+
+    <!-- ============ RESERVATIONS ============ -->
+    <section class="view" id="view-reservations">
+      <div class="list-wrap">
+        <div class="add-form">
+          <h3>New reservation</h3>
+          <div class="form-row">
+            <input id="rName" placeholder="Guest name" autocomplete="off">
+            <input id="rSize" type="number" min="1" max="40" placeholder="Party" value="2">
+            <input id="rPhone" placeholder="Phone" autocomplete="off">
+          </div>
+          <div class="form-row three-time">
+            <input id="rDate" type="date">
+            <input id="rTime" type="time">
+            <select id="rTablePref">
+              <option value="">No table preference</option>
+            </select>
+          </div>
+          <div class="form-row full">
+            <input id="rNotes" placeholder="Notes (anniversary, window seat, allergies…)" autocomplete="off">
+          </div>
+          <div class="form-row actions">
+            <button class="btn btn-primary btn-sm" onclick="addReservation()">Book</button>
+          </div>
+        </div>
+        <div class="list-section-title">Today · <span id="resTodayDate"></span></div>
+        <div id="resToday"></div>
+        <div class="list-section-title">Upcoming</div>
+        <div id="resUpcoming"></div>
+      </div>
+    </section>
+
+    <!-- ============ SHIFT ============ -->
+    <section class="view" id="view-shift">
+      <div class="shift-view">
+        <h2>Shift</h2>
+        <p class="lead">Pick a layout for tonight's staffing — or use open floor mode.</p>
+
+        <div class="open-floor-toggle">
+          <div class="oft-label">
+            <strong>Open floor mode</strong>
+            <span class="oft-desc">No sections. Every table is shared. Round robin still applies.</span>
+          </div>
+          <label class="oft-switch">
+            <input type="checkbox" id="openFloorToggle">
+            <span class="oft-slider"></span>
+          </label>
+        </div>
+
+        <div id="layoutSection">
+          <div class="list-section-title">Layout</div>
+          <div class="layout-picker" id="layoutPicker"></div>
+        </div>
+
+        <div id="rosterSection" style="display: none;">
+          <div class="list-section-title">Servers tonight</div>
+          <div class="server-roster" id="serverRoster"></div>
+          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-sm btn-ghost" id="addServerBtn">+ Add server</button>
+            <span style="flex: 1"></span>
+            <button class="btn btn-sm btn-warn" id="endShiftBtn" style="display: none;">End shift</button>
+            <button class="btn btn-sm btn-primary" id="startShiftBtn">Start shift</button>
+          </div>
+        </div>
+
+        <div id="shiftStatsSection" style="display: none; margin-top: 24px;">
+          <div class="list-section-title">Tonight's numbers</div>
+          <div id="shiftStats"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LAYOUTS ============ -->
+    <section class="view" id="view-layouts">
+      <div class="list-wrap">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+          <h2 style="font-family: 'Fraunces', serif; font-style: italic; font-weight: 700; margin: 0; font-size: 28px;">Layouts</h2>
+        </div>
+        <p style="color: var(--ink-soft); font-size: 14px; margin-bottom: 18px;">
+          Section presets for different staffing levels. Set once, reuse every shift.
+        </p>
+
+        <div class="layouts-help">
+          <strong>How it works:</strong> Create a layout for each common staffing level (e.g. "Friday 4-server"). For each layout, tap tables to cycle them through Section 1 → 2 → 3 → 4 → Floater. Pick the right layout at the start of every shift.
+        </div>
+
+        <div id="layoutListEditor"></div>
+        <div style="margin-top: 14px;">
+          <button class="btn btn-sm btn-ghost" id="newLayoutBtn">+ New layout</button>
+        </div>
+
+        <div id="layoutEditor" style="display: none; margin-top: 24px;">
+          <div class="list-section-title">
+            Editing: <span id="editingLayoutName"></span>
+          </div>
+          <p style="color: var(--ink-soft); font-size: 13px; margin-bottom: 12px;">
+            Tap any table on the floor below to cycle through sections. Tap "Done" when finished.
+          </p>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+            <button class="btn btn-sm btn-primary" onclick="finishLayoutEdit()">Done</button>
+            <button class="btn btn-sm btn-warn" id="deleteLayoutBtn">Delete this layout</button>
+          </div>
+          <div class="floor" id="layoutFloor" style="height: min(70vh, 700px); min-height: 360px; border-radius: 6px;">
+            <div class="floor-inner" id="layoutFloorInner"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ MODALS ============ -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h2>Settings</h2>
+    <p>Paste the <strong>Web app URL</strong> from your Google Apps Script deployment.</p>
+    <label>Apps Script Web App URL</label>
+    <input id="apiUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+    <label>Sync interval (seconds)</label>
+    <input id="syncSecsInput" type="number" min="2" max="60" value="5">
+    <p style="margin-top: 14px; font-size: 12px;">
+      <strong>Don't have a URL yet?</strong> See <code>apps_script.gs</code> in the README.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('settingsModal')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="addTableModal">
+  <div class="modal">
+    <h2>Add a table</h2>
+    <label>Label</label>
+    <input id="newTableLabel" placeholder="e.g. 1, A4, Bar 3">
+    <label>Seats</label>
+    <input id="newTableSeats" type="number" min="1" max="20" value="4">
+    <label>Shape</label>
+    <select id="newTableShape">
+      <option value="square">Square / rectangle</option>
+      <option value="circle">Round</option>
+      <option value="booth">Booth</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('addTableModal')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmAddTable()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- TABLE ACTIONS modal: shown on tap when shift active and table is open / seated -->
+<div class="modal-bg" id="tableActionsModal">
+  <div class="modal" id="tableActionsModalContent">
+    <!-- populated dynamically -->
+  </div>
+</div>
+
+<!-- SEAT FROM WAITLIST/RES -->
+<div class="modal-bg" id="seatModal">
+  <div class="modal">
+    <h2>Seat <span id="seatModalName" style="font-style: normal;"></span></h2>
+    <p id="seatModalLead">Pick a table.</p>
+    <div class="picker-grid" id="seatPicker"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('seatModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- WALK reason -->
+<div class="modal-bg" id="walkModal">
+  <div class="modal">
+    <h2>Mark as walked</h2>
+    <p>Why did <strong id="walkName"></strong> leave?</p>
+    <div style="display: grid; gap: 6px; margin-top: 10px;">
+      <button class="btn btn-ghost" onclick="confirmWalk('Wait too long')">Wait too long</button>
+      <button class="btn btn-ghost" onclick="confirmWalk('Changed mind')">Changed mind</button>
+      <button class="btn btn-ghost" onclick="confirmWalk('Group split')">Group split / went elsewhere</button>
+      <button class="btn btn-ghost" onclick="confirmWalk('No reason given')">No reason given</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('walkModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW LAYOUT -->
+<div class="modal-bg" id="newLayoutModal">
+  <div class="modal">
+    <h2>New layout</h2>
+    <label>Name</label>
+    <input id="newLayoutName" placeholder="e.g. Friday 4-server, Lunch 2-server">
+    <label>Staffing (number of servers this layout is designed for)</label>
+    <select id="newLayoutStaffing">
+      <option value="1">1 server</option>
+      <option value="2">2 servers</option>
+      <option value="3">3 servers</option>
+      <option value="4">4 servers</option>
+    </select>
+    <p style="font-size: 12px; margin-top: 10px;">After creating, tap tables in the layout editor to assign them to sections 1 through {staffing} (or floater).</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('newLayoutModal')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmNewLayout()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- HANDOFF picker -->
+<div class="modal-bg" id="handoffModal">
+  <div class="modal">
+    <h2>Hand off table</h2>
+    <p>Pick whether this handoff transfers credit in the rotation, or is just temporary coverage.</p>
+    <div style="display: grid; gap: 6px; margin-top: 8px;">
+      <label style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">
+        <input type="radio" name="handoffCredit" value="transfer" checked style="margin-top: 3px;">
+        <span><strong>Transfer credit to the new server</strong><br><span style="font-size: 12px; color: var(--ink-soft);">The new server gets credit in the rotation. Use this when the wrong section was seated by mistake.</span></span>
+      </label>
+      <label style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">
+        <input type="radio" name="handoffCredit" value="keep" style="margin-top: 3px;">
+        <span><strong>Keep credit with the original server</strong><br><span style="font-size: 12px; color: var(--ink-soft);">Just temporary coverage (bathroom break, drink drop-off). Rotation doesn't change.</span></span>
+      </label>
+    </div>
+    <h3 style="margin: 14px 0 6px; font-size: 14px;">Receiving server:</h3>
+    <div id="handoffServerList" style="display: grid; gap: 6px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('handoffModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- MOVE picker -->
+<div class="modal-bg" id="moveModal">
+  <div class="modal">
+    <h2>Move party to another table</h2>
+    <p>The original server keeps their place in the rotation. The new table's server gets the cover.</p>
+    <div class="picker-grid" id="movePicker"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('moveModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- SERVER DETAIL -->
+<div class="modal-bg" id="serverDetailModal">
+  <div class="modal" id="serverDetailContent"></div>
+</div>
+
+<!-- FLOATER SERVER PICKER -->
+<div class="modal-bg" id="floaterServerModal">
+  <div class="modal">
+    <h2>Floater table — pick the server</h2>
+    <p>Which server gets this table? The suggested one is whoever's up in the rotation. Tap any name to pick.</p>
+    <div id="floaterServerList" style="display: grid; gap: 6px; margin-top: 12px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="cancelFloaterSeat()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- MANAGER MODE -->
+<div class="modal-bg" id="managerModal">
+  <div class="modal" id="managerModalContent"></div>
+</div>
+
+<!-- RENAME TABLE -->
+<div class="modal-bg" id="renameTableModal">
+  <div class="modal">
+    <h2>Edit table</h2>
+    <label>Label</label>
+    <input id="renameTableLabel" placeholder="e.g. 1, A4, Bar 3">
+    <label>Seats</label>
+    <input id="renameTableSeats" type="number" min="1" max="20" value="4">
+    <label>Shape</label>
+    <select id="renameTableShape">
+      <option value="square">Square / rectangle</option>
+      <option value="circle">Round</option>
+      <option value="booth">Booth</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('renameTableModal')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmRenameTable()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const LS_KEY = 'losAmigosSeating_v2';
+const MGR_PIN_KEY = 'losAmigosMgrPin_v1';
+const MGR_AUTO_LOCK_MS = 10 * 60 * 1000; // 10 minutes
+const state = {
+  apiUrl: 'https://script.google.com/macros/s/AKfycbwnk9dDDM5rp2mhwhDz05ap0GQVPHBZwGHfqllxepz8HjlmS8YoXgoMl9DOLk50GrX0wA/exec',
+  syncSecs: 5,
+  // Persisted to Sheet:
+  tables: [],
+  waitlist: [],
+  reservations: [],
+  layouts: [],
+  servers: [],
+  shift: [],
+  // UI/local:
+  editing: false,
+  currentView: 'floor',
+  pendingSeat: null,
+  pendingMove: null,
+  pendingHandoff: null,
+  pendingCombine: null, // when set: { primaryId } — next tapped open table joins the combo
+
+  pendingTable: null,
+  pendingWalkId: null,
+  editingLayoutKey: null,
+  selectedServerId: null,
+  lastSyncAt: 0,
+  dirty: false,
+  // Manager mode (in-memory only — never persisted across reloads):
+  managerUnlocked: false,
+  managerUnlockedAt: 0,
+  // Undo last seat (in-memory only, 60-second window)
+  lastSeat: null, // { tableId, serverId, waitlistId, resId, prevTablesTotal, prevLastSeatedAt, ts }
+};
+
+// ============================================================
+// MANAGER MODE
+// ============================================================
+function getStoredPin() {
+  try { return localStorage.getItem(MGR_PIN_KEY) || ''; } catch (_) { return ''; }
+}
+function setStoredPin(pin) {
+  try { localStorage.setItem(MGR_PIN_KEY, pin); } catch (_) {}
+}
+function clearStoredPin() {
+  try { localStorage.removeItem(MGR_PIN_KEY); } catch (_) {}
+}
+function isManagerUnlocked() {
+  if (!state.managerUnlocked) return false;
+  // Check auto-lock
+  if (Date.now() - state.managerUnlockedAt > MGR_AUTO_LOCK_MS) {
+    state.managerUnlocked = false;
+    return false;
+  }
+  return true;
+}
+function lockManager() {
+  state.managerUnlocked = false;
+  state.managerUnlockedAt = 0;
+  if (state.editing) {
+    state.editing = false;
+    document.getElementById('editLayoutBtn').textContent = 'Edit Layout';
+    document.getElementById('floor').classList.remove('editing');
+  }
+  updateManagerUI();
+  renderFloor();
+  toast('Manager mode locked');
+}
+function unlockManager() {
+  state.managerUnlocked = true;
+  state.managerUnlockedAt = Date.now();
+  updateManagerUI();
+  renderFloor();
+  toast('Manager mode unlocked');
+}
+// Refresh the activity timer on user actions while unlocked
+function bumpManagerActivity() {
+  if (state.managerUnlocked) state.managerUnlockedAt = Date.now();
+}
+function updateManagerUI() {
+  const btn = document.getElementById('managerBtn');
+  if (isManagerUnlocked()) {
+    btn.classList.add('unlocked');
+    btn.textContent = 'Manager';
+  } else {
+    btn.classList.remove('unlocked');
+    btn.textContent = 'Manager';
+  }
+  // Hide/show manager-only buttons
+  const addBtn = document.getElementById('addTableBtn');
+  const editBtn = document.getElementById('editLayoutBtn');
+  const newLayoutBtn = document.getElementById('newLayoutBtn');
+  const fillBtn = document.getElementById('fillCanvasBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
+  if (addBtn) addBtn.style.display = isManagerUnlocked() ? '' : 'none';
+  if (editBtn) editBtn.style.display = isManagerUnlocked() ? '' : 'none';
+  if (newLayoutBtn) newLayoutBtn.style.display = isManagerUnlocked() ? '' : 'none';
+  if (fillBtn) fillBtn.style.display = isManagerUnlocked() ? '' : 'none';
+  // Settings is also manager-only — but show it when the app has no API URL
+  // yet (first-time setup needs a way in before Manager exists).
+  if (settingsBtn) {
+    const firstTimeSetup = !state.apiUrl;
+    settingsBtn.style.display = (isManagerUnlocked() || firstTimeSetup) ? '' : 'none';
+  }
+  // Layouts tab — manager edit buttons
+  document.querySelectorAll('[data-mgr-only]').forEach(el => {
+    el.style.display = isManagerUnlocked() ? '' : 'none';
+  });
+}
+
+function openManagerModal() {
+  const pin = getStoredPin();
+  const content = document.getElementById('managerModalContent');
+  if (!pin) {
+    // First-time setup
+    content.innerHTML = `
+      <h2>Set Manager PIN</h2>
+      <p>Pick a 4-digit PIN. This protects table editing (add, delete, drag) from accidental taps during service. The PIN is stored on this device only — set it on each device the manager uses.</p>
+      <label>New PIN (4 digits)</label>
+      <input id="newPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off">
+      <label>Confirm PIN</label>
+      <input id="newPinConfirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off">
+      <div class="modal-actions">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('managerModal')">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="confirmSetPin()">Set PIN</button>
+      </div>
+    `;
+    setTimeout(() => document.getElementById('newPinInput').focus(), 50);
+  } else if (isManagerUnlocked()) {
+    // Already unlocked — show status & lock option
+    const mins = Math.max(0, Math.floor((MGR_AUTO_LOCK_MS - (Date.now() - state.managerUnlockedAt)) / 60000));
+    content.innerHTML = `
+      <h2>Manager Mode</h2>
+      <p style="color: var(--warn); font-weight: 600;">🔓 Currently unlocked</p>
+      <p>Auto-locks in about ${mins} minute${mins === 1 ? '' : 's'} of inactivity.</p>
+      <p>While unlocked, you can:<br>
+      • Add new tables<br>
+      • Edit Layout (drag/resize)<br>
+      • Rename tables<br>
+      • Delete tables<br>
+      • Create &amp; edit section layouts</p>
+      <div class="modal-actions" style="justify-content: space-between;">
+        <button class="btn btn-warn btn-sm" onclick="confirmChangePin()">Change PIN</button>
+        <div>
+          <button class="btn btn-ghost btn-sm" onclick="closeModal('managerModal')">Close</button>
+          <button class="btn btn-primary btn-sm" onclick="lockManager(); closeModal('managerModal');">Lock now</button>
+        </div>
+      </div>
+    `;
+  } else {
+    // Locked — prompt for PIN
+    content.innerHTML = `
+      <h2>Manager Mode</h2>
+      <p>Enter your 4-digit PIN to unlock.</p>
+      <label>PIN</label>
+      <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter') confirmUnlock()">
+      <div id="pinError" style="color: var(--warn); font-size: 13px; margin-top: 6px; display: none;">Wrong PIN.</div>
+      <div class="modal-actions" style="justify-content: space-between;">
+        <button class="btn btn-warn btn-sm" onclick="confirmForgotPin()">Forgot PIN?</button>
+        <div>
+          <button class="btn btn-ghost btn-sm" onclick="closeModal('managerModal')">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="confirmUnlock()">Unlock</button>
+        </div>
+      </div>
+    `;
+    setTimeout(() => document.getElementById('pinInput').focus(), 50);
+  }
+  openModal('managerModal');
+}
+
+function confirmSetPin() {
+  const a = document.getElementById('newPinInput').value.trim();
+  const b = document.getElementById('newPinConfirm').value.trim();
+  if (!/^\d{4}$/.test(a)) { toast('PIN must be 4 digits'); return; }
+  if (a !== b) { toast('PINs don\'t match'); return; }
+  setStoredPin(a);
+  unlockManager();
+  closeModal('managerModal');
+}
+
+function confirmUnlock() {
+  const entered = document.getElementById('pinInput').value.trim();
+  if (entered === getStoredPin()) {
+    unlockManager();
+    closeModal('managerModal');
+  } else {
+    document.getElementById('pinError').style.display = 'block';
+    document.getElementById('pinInput').value = '';
+    document.getElementById('pinInput').focus();
+  }
+}
+
+function confirmChangePin() {
+  const content = document.getElementById('managerModalContent');
+  content.innerHTML = `
+    <h2>Change Manager PIN</h2>
+    <label>New PIN (4 digits)</label>
+    <input id="newPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off">
+    <label>Confirm new PIN</label>
+    <input id="newPinConfirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="openManagerModal()">Back</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmSetPin()">Save</button>
+    </div>
+  `;
+  setTimeout(() => document.getElementById('newPinInput').focus(), 50);
+}
+
+function confirmForgotPin() {
+  if (!confirm('Resetting the PIN clears it on this device only. You\'ll need to set a new one. Continue?')) return;
+  clearStoredPin();
+  closeModal('managerModal');
+  toast('PIN cleared — tap Manager to set a new one');
+}
+
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) Object.assign(state, JSON.parse(raw));
+  } catch (_) {}
+}
+function saveLocal() {
+  const persist = { apiUrl: state.apiUrl, syncSecs: state.syncSecs };
+  localStorage.setItem(LS_KEY, JSON.stringify(persist));
+}
+
+// ============================================================
+// SHIFT KV HELPERS
+// ============================================================
+function shiftGet(key, fallback) {
+  const row = state.shift.find(s => s.key === key);
+  if (!row) return fallback;
+  try { return JSON.parse(row.value); } catch (_) { return row.value; }
+}
+function shiftSet(key, value) {
+  const idx = state.shift.findIndex(s => s.key === key);
+  const v = JSON.stringify(value);
+  if (idx >= 0) state.shift[idx].value = v;
+  else state.shift.push({ key, value: v });
+}
+
+const isShiftActive = () => !!shiftGet('active', false);
+const currentLayoutKey = () => shiftGet('layoutKey', '');
+const currentLayout = () => state.layouts.filter(l => l.layoutKey === currentLayoutKey());
+const isOpenFloor = () => !!shiftGet('openFloor', false);
+
+// ============================================================
+// API
+// ============================================================
+async function api(action, payload) {
+  if (!state.apiUrl) throw new Error('No API URL configured');
+  const res = await fetch(state.apiUrl + '?action=' + encodeURIComponent(action), {
+    method: 'POST', body: JSON.stringify(payload || {}), redirect: 'follow',
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+async function pull() {
+  if (!state.apiUrl) return;
+  // Pause incoming sync while the host is mid-combine — otherwise a fresh
+  // tables payload would replace the table objects between taps and wipe
+  // the in-progress combine bookkeeping.
+  if (state.pendingCombine || state.pendingMove || state.pendingSeat || state.pendingHandoff) return;
+  try {
+    const data = await api('getAll');
+    if (!state.dirty) {
+      // Preserve combo bookkeeping across pulls: the backend Google Sheet
+      // doesn't store `combinedWith` / `combinePrimary`, so merge them back
+      // from the current state by id before swapping.
+      const oldByid = new Map(state.tables.map(t => [t.id, t]));
+      const incomingTables = (data.tables || []).map(nt => {
+        const prev = oldByid.get(nt.id);
+        if (prev && (Array.isArray(prev.combinedWith) || prev.combinePrimary)) {
+          return Object.assign({}, nt, {
+            combinedWith:   Array.isArray(prev.combinedWith) ? prev.combinedWith : [],
+            combinePrimary: prev.combinePrimary || '',
+          });
+        }
+        return nt;
+      });
+      state.tables       = incomingTables;
+      state.waitlist     = data.waitlist     || [];
+      state.reservations = data.reservations || [];
+      state.layouts      = data.layouts      || [];
+      state.servers      = data.servers      || [];
+      state.shift        = data.shift        || [];
+      // Clean up any reservations whose date/time were stored as ISO timestamps
+      // or other junk. Push back to the sheet so the fix sticks.
+      if (migrateReservationFormats()) { push('reservations'); }
+    }
+    state.lastSyncAt = Date.now();
+    setSyncStatus('ok');
+    // One-time migration: if tables are placed on the old 1600x1000 canvas,
+    // scale them down to fit the new portrait canvas. Only runs if needed.
+    if (!state._migrationChecked) {
+      state._migrationChecked = true;
+      if (migrateTablesIfNeeded()) {
+        toast('Floor auto-scaled to fit new canvas');
+        push('tables');
+      }
+    }
+    render();
+  } catch (err) { setSyncStatus('error', err.message); }
+}
+
+async function push(which) {
+  if (!state.apiUrl) return;
+  try {
+    if (which === 'tables')       await api('saveTables',       { items: state.tables });
+    if (which === 'waitlist')     await api('saveWaitlist',     { items: state.waitlist });
+    if (which === 'reservations') await api('saveReservations', { items: state.reservations });
+    if (which === 'layouts')      await api('saveLayouts',      { items: state.layouts });
+    if (which === 'servers')      await api('saveServers',      { items: state.servers });
+    if (which === 'shift')        await api('saveShift',        { items: state.shift });
+    state.dirty = false;
+    state.lastSyncAt = Date.now();
+    setSyncStatus('ok');
+  } catch (err) { setSyncStatus('error', err.message); }
+}
+
+async function pushAll() {
+  state.dirty = true;
+  await Promise.all([
+    push('tables'), push('waitlist'), push('reservations'),
+    push('layouts'), push('servers'), push('shift'),
+  ]);
+  state.dirty = false;
+}
+
+async function logEvent(event, data) {
+  if (!state.apiUrl) return;
+  try { await api('appendLog', { entries: [{ ts: Date.now(), event, data }] }); } catch (_) {}
+}
+
+function setSyncStatus(status, msg) {
+  const dot = document.getElementById('syncDot');
+  const text = document.getElementById('syncText');
+  dot.classList.remove('stale', 'error');
+  if (status === 'ok') {
+    text.textContent = 'Synced ' + new Date(state.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (status === 'error') {
+    dot.classList.add('error');
+    text.textContent = msg ? ('⚠ ' + (msg.length > 30 ? msg.slice(0,28)+'…' : msg)) : '⚠ Sync error';
+  } else { text.textContent = status; }
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+const uid = pre => pre + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const escapeHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Canonical-form helpers for reservation date (YYYY-MM-DD) and time (HH:MM).
+// Tolerate already-canonical input, ISO strings, or stray junk.
+const normalizeResDate = (d) => {
+  if (!d) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const dt = new Date(d);
+  if (isNaN(dt)) return d;
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+};
+const normalizeResTime = (t) => {
+  if (!t) return '';
+  const m = /^(\d{1,2}):(\d{2})/.exec(t);
+  if (m) return String(+m[1]).padStart(2,'0') + ':' + m[2];
+  const dt = new Date(t);
+  if (isNaN(dt)) return t;
+  return String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
+};
+const fmtResDate = (d) => {
+  const v = normalizeResDate(d);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return v || '';
+  const dt = new Date(+m[1], +m[2]-1, +m[3]);
+  if (isNaN(dt)) return v;
+  return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+};
+const fmtResTime = (t) => {
+  const v = normalizeResTime(t);
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+  if (!m) return v || '';
+  const dt = new Date();
+  dt.setHours(+m[1], +m[2], 0, 0);
+  return dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
+function migrateReservationFormats() {
+  let changed = false;
+  for (const r of (state.reservations || [])) {
+    const nd = normalizeResDate(r.date);
+    const nt = normalizeResTime(r.time);
+    if (nd !== r.date) { r.date = nd; changed = true; }
+    if (nt !== r.time) { r.time = nt; changed = true; }
+  }
+  return changed;
+}
+const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+
+// Stamp a table as seated, recording which shift it was seated in.
+// Used everywhere a table transitions to seated so we can detect "leftover from previous shift".
+function stampSeated(t) {
+  t.status = 'seated';
+  t.seatedAtShift = shiftGet('startedAt', '') || '';
+  t.updated = Date.now();
+}
+
+// ============================================================
+// TABLE COMBOS (pushing tables together for a single party)
+// ============================================================
+// Data model: each table optionally has `t.combinedWith` = array of OTHER
+// table IDs in the same combo group (symmetric across all members).
+// The first table the host taps becomes the primary; others have
+// `t.combinePrimary` set to the primary's id. The primary has
+// combinePrimary === '' (or its own id, treated equivalently).
+//
+// Behavior summary:
+//  - Members render with a connecting halo and a “combo” badge.
+//  - Seating any member seats them all; one rotation tick for the primary's section.
+//  - Clearing any member clears them all AND auto-breaks the combo.
+//  - Total seats = sum of member seats; partySize/coverage reads off this total.
+
+function getComboMembers(tableId) {
+  // Returns an array of all table objects in the combo (including the given one),
+  // ordered with the primary first. If not in a combo, returns [tableSelf].
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return [];
+  const ids = Array.isArray(t.combinedWith) ? t.combinedWith.slice() : [];
+  if (!ids.length) return [t];
+  const all = [t.id, ...ids];
+  const tables = all.map(id => state.tables.find(x => x.id === id)).filter(Boolean);
+  // Primary first; primary's combinePrimary is empty or self.
+  const primary = tables.find(x => !x.combinePrimary || x.combinePrimary === x.id) || tables[0];
+  return [primary, ...tables.filter(x => x.id !== primary.id)];
+}
+
+function isInCombo(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  return !!(t && Array.isArray(t.combinedWith) && t.combinedWith.length);
+}
+
+function getComboPrimary(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return null;
+  if (!t.combinePrimary || t.combinePrimary === t.id) return t; // self is primary
+  return state.tables.find(x => x.id === t.combinePrimary) || t;
+}
+
+function comboTotalSeats(tableId) {
+  return getComboMembers(tableId).reduce((sum, m) => sum + (m.seats || 0), 0);
+}
+
+// Add another table to an existing combo (or start one if the primary is alone).
+// Returns true on success, or a string error code on failure so the UI can
+// give the host a specific reason instead of a generic "could not combine".
+function addToCombo(primaryId, addId) {
+  if (primaryId === addId) return 'same-table';
+  const primary = state.tables.find(x => x.id === primaryId);
+  const addee   = state.tables.find(x => x.id === addId);
+  if (!primary) return 'no-primary';
+  if (!addee)   return 'no-addee';
+  if (primary.status !== 'open') return 'primary-not-open:' + primary.status;
+  if (addee.status   !== 'open') return 'addee-not-open:'   + addee.status;
+  const existing = Array.isArray(primary.combinedWith) ? primary.combinedWith.slice() : [];
+  if (existing.includes(addId)) return 'already-in-combo';
+  // If the addee is already in another combo, refuse — unless it's the same primary.
+  if (Array.isArray(addee.combinedWith) && addee.combinedWith.length) {
+    if (addee.combinePrimary && addee.combinePrimary !== primaryId) {
+      return 'addee-in-other-combo';
+    }
+    // Same primary already — effectively a no-op success.
+    return true;
+  }
+
+  const allIds = [primaryId, ...existing, addId];
+  // Symmetric: each member knows about all OTHER members; all have combinePrimary = primaryId.
+  allIds.forEach(id => {
+    const m = state.tables.find(x => x.id === id);
+    if (!m) return;
+    m.combinedWith = allIds.filter(x => x !== id);
+    m.combinePrimary = (id === primaryId) ? '' : primaryId;
+    m.updated = Date.now();
+  });
+  return true;
+}
+
+// Dissolve a combo: every member becomes solo again. Safe to call on solo tables.
+function breakCombo(tableId) {
+  const members = getComboMembers(tableId);
+  members.forEach(m => {
+    m.combinedWith = [];
+    m.combinePrimary = '';
+    m.updated = Date.now();
+  });
+}
+
+// True if this table was seated in a shift earlier than the current one.
+function isLeftoverTable(t) {
+  if (t.status !== 'seated') return false;
+  const currentStart = shiftGet('startedAt', null);
+  if (!currentStart) return false;
+  const tableStart = t.seatedAtShift || 0;
+  // Leftover if the table was seated BEFORE the current shift started.
+  return tableStart && tableStart < currentStart;
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function goToView(view) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+  state.currentView = view;
+  if (view === 'shift') renderShiftView();
+  if (view === 'layouts') renderLayoutsView();
+  if (view === 'floor') {
+    // The floor's dimensions are only knowable when it's visible; re-fit on switch.
+    setTimeout(() => { if (!floorView.isCustom) floorZoomReset(); }, 50);
+  }
+}
+
+// ============================================================
+// SECTION HELPERS
+// ============================================================
+function getSectionForTable(tableId) {
+  // In open floor mode, every table is treated as a floater (no section ownership).
+  if (isOpenFloor()) return 'floater';
+  // For combo members, use the PRIMARY's section so the whole combo reads as
+  // one party assigned to one section / one server.
+  let lookupId = tableId;
+  if (isInCombo(tableId)) {
+    const primary = getComboPrimary(tableId);
+    if (primary) lookupId = primary.id;
+  }
+  const layoutKey = currentLayoutKey();
+  if (!layoutKey) return null;
+  const row = state.layouts.find(l => l.layoutKey === layoutKey && l.tableId === lookupId);
+  return row ? String(row.section) : null;
+}
+
+function getServerForTable(tableId) {
+  // If this table is part of a combo, look up the PRIMARY — every member
+  // belongs to the same server / shows the same party info.
+  const t = state.tables.find(x => x.id === tableId);
+  const lookupT = (t && isInCombo(tableId)) ? getComboPrimary(tableId) : t;
+  if (!lookupT) return null;
+  // Manual override on the table itself wins (handoffs, manual assignment)
+  if (lookupT.assignedServerId) {
+    return state.servers.find(s => s.id === lookupT.assignedServerId) || null;
+  }
+  // Otherwise based on section
+  const section = getSectionForTable(lookupT.id);
+  if (!section || section === 'floater') return null;
+  return state.servers.find(s => String(s.section) === String(section) && s.active) || null;
+}
+
+// Find the most recent waitlist entry that's seated at this table (or its combo primary).
+function getSeatedWaitlistForTable(tableId) {
+  const primary = isInCombo(tableId) ? getComboPrimary(tableId) : state.tables.find(x => x.id === tableId);
+  if (!primary) return null;
+  // Walk the waitlist in reverse — most recent first.
+  for (let i = state.waitlist.length - 1; i >= 0; i--) {
+    const w = state.waitlist[i];
+    if (w.status === 'seated' && w.tableId === primary.id) return w;
+  }
+  return null;
+}
+
+function sectionBadgeClass(section) {
+  if (!section) return '';
+  if (section === 'floater') return 'floater';
+  return 's' + section;
+}
+
+// ============================================================
+// ROUND ROBIN
+// ============================================================
+// Returns active servers (not on break) in the order they'd next be seated.
+// Rules:
+//   1) Skipped servers come first (oldest skip first).
+//   2) Among non-skipped: fewest TOTAL tables this shift wins (running count, never decrements).
+//   3) Tiebreaker: lower section number wins (Sec 1 → 2 → 3 → 4).
+function rotationQueue() {
+  const active = state.servers.filter(s => s.active && !s.onBreak);
+  if (!active.length) return [];
+  recomputeServerLoads();
+  const skipped = active.filter(s => s.skippedAt).sort((a,b) => (a.skippedAt||0) - (b.skippedAt||0));
+  const rest = active.filter(s => !s.skippedAt).sort((a, b) => {
+    const aTotal = a.tablesTotal || 0;
+    const bTotal = b.tablesTotal || 0;
+    if (aTotal !== bTotal) return aTotal - bTotal;
+    const aSec = parseInt(a.section) || 99;
+    const bSec = parseInt(b.section) || 99;
+    return aSec - bSec;
+  });
+  return [...skipped, ...rest];
+}
+function nextUpServer() {
+  const q = rotationQueue();
+  return q[0] || null;
+}
+// Position of a server in the rotation queue (1-indexed). 0 if not in queue.
+function rotationPosition(serverId) {
+  const q = rotationQueue();
+  const idx = q.findIndex(s => s.id === serverId);
+  return idx < 0 ? 0 : idx + 1;
+}
+
+function getServerById(id) { return state.servers.find(s => s.id === id) || null; }
+
+function recomputeServerLoads() {
+  // Recompute tablesOwn / tablesHandoff / covers from current floor state.
+  // Skips, lastSeatedAt, skippedAt are NOT touched here — those are event-driven.
+  for (const s of state.servers) {
+    s.tablesOwn = 0; s.tablesHandoff = 0; s.covers = 0;
+  }
+  for (const t of state.tables) {
+    if (t.status !== 'seated') continue;
+    // Leftover tables (seated in a previous shift) don't count toward CURRENT shift loads.
+    // The previous server's name still displays on the table, but their tablesOwn/active reflects current shift only.
+    if (isLeftoverTable(t)) continue;
+    const sec = getSectionForTable(t.id);
+    const ownerByLayout = (sec && sec !== 'floater')
+      ? state.servers.find(sv => String(sv.section) === String(sec) && sv.active)
+      : null;
+    const assigned = t.assignedServerId
+      ? state.servers.find(sv => sv.id === t.assignedServerId)
+      : null;
+    const finalServer = assigned || ownerByLayout;
+    if (!finalServer) continue;
+    // Find covers from waitlist (most recent seated to this table)
+    const wlEntry = [...state.waitlist].reverse().find(w => w.status === 'seated' && w.tableId === t.id);
+    const covers = wlEntry ? (wlEntry.partySize || 0) : 0;
+    if (assigned && (!ownerByLayout || ownerByLayout.id !== assigned.id)) {
+      finalServer.tablesHandoff += 1;
+    } else {
+      finalServer.tablesOwn += 1;
+    }
+    finalServer.covers += covers;
+  }
+}
+
+// ============================================================
+// RENDER — SHIFT BAR (top of Floor)
+// ============================================================
+function renderShiftBar() {
+  const bar = document.getElementById('shiftBar');
+  if (!isShiftActive() || !state.servers.filter(s => s.active).length) {
+    bar.classList.add('empty');
+    bar.innerHTML = '<div class="empty-msg">No shift active. <a onclick="goToView(\'shift\')">Start a shift →</a></div>';
+    return;
+  }
+  bar.classList.remove('empty');
+  recomputeServerLoads();
+  const queue = rotationQueue();
+  const onBreakList = state.servers.filter(s => s.active && s.onBreak);
+
+  // Slim mode: each server shows only [name] [total-tables-count]; next-up gets a small NEXT chip.
+  const queueHtml = queue.map((s, idx) => {
+    const isFirst = idx === 0;
+    const isSkipped = !!s.skippedAt;
+    const cls = ['server-card'];
+    if (isFirst) cls.push('next-up');
+    if (isSkipped) cls.push('skipped');
+    if (state.selectedServerId === s.id) cls.push('selected');
+    const totalTables = s.tablesTotal || 0;
+    const nextMark = isFirst
+      ? `<span class="sc-slim-next-mark">${isSkipped ? 'Skip→Next' : 'Next'}</span>`
+      : '';
+    return `
+      <div class="${cls.join(' ')}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — ${totalTables} tables seated">
+        ${nextMark}
+        <span class="sc-slim-name">${escapeHtml(s.name)}</span>
+        <span class="sc-slim-count">${totalTables}</span>
+      </div>
+    `;
+  }).join('');
+
+  const breakHtml = onBreakList.length ? `
+    <div class="break-divider" aria-hidden="true"></div>
+  ` + onBreakList.map(s => {
+    const cls = ['server-card', 'on-break-card'];
+    if (state.selectedServerId === s.id) cls.push('selected');
+    const totalTables = s.tablesTotal || 0;
+    return `
+      <div class="${cls.join(' ')}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — on break">
+        <span class="sc-slim-next-mark" style="background: var(--gold); color: var(--paper);">☕</span>
+        <span class="sc-slim-name">${escapeHtml(s.name)}</span>
+        <span class="sc-slim-count">${totalTables}</span>
+      </div>
+    `;
+  }).join('') : '';
+
+  bar.innerHTML = queueHtml + breakHtml;
+}
+
+function ordinal(n) {
+  if (n === 1) return '1st';
+  if (n === 2) return '2nd';
+  if (n === 3) return '3rd';
+  return n + 'th';
+}
+
+function onServerCardClick(id) {
+  state.selectedServerId = state.selectedServerId === id ? null : id;
+  renderShiftBar();
+  renderFloor();
+  if (state.selectedServerId) showServerDetail(id);
+}
+
+function showServerDetail(id) {
+  const s = getServerById(id);
+  if (!s) return;
+  const tables = state.tables.filter(t => {
+    if (t.status !== 'seated') return false;
+    const srv = getServerForTable(t.id);
+    return srv && srv.id === id;
+  });
+  const lastSeats = state.waitlist
+    .filter(w => w.status === 'seated' && w.serverIdAtSeat === id)
+    .sort((a, b) => (b.seatedAt || 0) - (a.seatedAt || 0))
+    .slice(0, 5);
+
+  const breakBtn = s.onBreak
+    ? `<button class="btn btn-primary btn-sm" onclick="returnFromBreak('${s.id}')">Back from break</button>`
+    : `<button class="btn btn-warn btn-sm" onclick="sendOnBreak('${s.id}')">Send on break</button>`;
+  const breakInfo = s.onBreak
+    ? `<p style="background: rgba(245, 158, 11, 0.15); padding: 8px 12px; border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--gold); margin-top: 12px; border-left: 3px solid var(--gold);">
+        ☕ On break since ${fmtTime(s.breakStartedAt)} · table total frozen at ${s.tablesTotalAtBreak || 0}
+       </p>`
+    : '';
+
+  const html = `
+    <h2>${escapeHtml(s.name)} <span style="font-style: normal; font-family: 'DM Mono', monospace; font-size: 12px; color: var(--ink-soft);">· Section ${s.section}${s.onBreak ? ' · ON BREAK' : ''}</span></h2>
+    ${breakInfo}
+    <div class="server-detail-stats">
+      <div class="stat-block"><div class="v">${s.tablesTotal || 0}</div><div class="l">Total tables (shift)</div></div>
+      <div class="stat-block"><div class="v">${(s.tablesOwn || 0) + (s.tablesHandoff || 0)}</div><div class="l">Active now</div></div>
+      <div class="stat-block"><div class="v">${s.covers || 0}</div><div class="l">Covers</div></div>
+      <div class="stat-block ${s.skips ? 'warn' : ''}"><div class="v">${s.skips || 0}</div><div class="l">Times skipped</div></div>
+    </div>
+    <p style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-soft); letter-spacing: 0.05em;">
+      ${s.lastSeatedAt ? 'Last seated at ' + fmtTime(s.lastSeatedAt) : 'No seats this shift yet'}
+      ${s.skippedAt ? ' · <span style="color: var(--warn);">Currently skipped (since ' + fmtTime(s.skippedAt) + ')</span>' : ''}
+    </p>
+    <div class="list-section-title">Currently on their floor</div>
+    ${tables.length
+      ? tables.map(t => `<div style="padding: 6px 0; font-size: 14px;">${escapeHtml(t.label)} · ${t.seats} seats</div>`).join('')
+      : '<p style="font-size: 13px; color: var(--ink-soft);">No tables.</p>'}
+    <div class="list-section-title">Recent seats</div>
+    ${lastSeats.length
+      ? lastSeats.map(w => `<div style="padding: 4px 0; font-family: 'DM Mono', monospace; font-size: 12px;">${fmtTime(w.seatedAt)} — ${escapeHtml(w.name)} (${w.partySize})</div>`).join('')
+      : '<p style="font-size: 13px; color: var(--ink-soft);">No seats yet this shift.</p>'}
+    <div class="modal-actions" style="justify-content: space-between;">
+      ${breakBtn}
+      <button class="btn btn-ghost btn-sm" onclick="state.selectedServerId=null; closeModal('serverDetailModal'); renderShiftBar(); renderFloor();">Close</button>
+    </div>
+  `;
+  document.getElementById('serverDetailContent').innerHTML = html;
+  openModal('serverDetailModal');
+}
+
+// ============================================================
+// RENDER — FLOOR
+// ============================================================
+// Canvas dimensions match your real floor's proportions (38 wide × 45 long).
+// Using ~20px per foot gives us 760×900 — portrait orientation for vertical tablets.
+const FLOOR_W = 760, FLOOR_H = 900;
+
+// ============================================================
+// FLOOR ZOOM / PAN / AUTO-FIT
+// ============================================================
+// We keep the inner canvas at fixed pixel dimensions (FLOOR_W × FLOOR_H) and
+// apply a CSS transform to fit it inside the viewport. Default is "fit" —
+// the canvas is scaled to fill the available space while preserving aspect ratio.
+// User can pinch-zoom or use +/-/Fit buttons.
+const floorView = {
+  scale: 1,
+  tx: 0, ty: 0,
+  fitScale: 1,
+  isCustom: false, // true when the user has zoomed/panned away from auto-fit
+};
+
+function applyFloorTransform() {
+  const inner = document.getElementById('floorInner');
+  if (!inner) return;
+  inner.style.transform = `translate(${floorView.tx}px, ${floorView.ty}px) scale(${floorView.scale})`;
+}
+
+function computeFitScale() {
+  const floor = document.getElementById('floor');
+  if (!floor) return 1;
+  const W = floor.clientWidth || 1;
+  const H = floor.clientHeight || 1;
+  // Tiny margin so tables near the edge aren't touching the frame.
+  // Smaller margin = more of the screen used = bigger tables, less empty space.
+  const margin = 0.99;
+  return Math.min((W * margin) / FLOOR_W, (H * margin) / FLOOR_H);
+}
+
+function floorZoomReset() {
+  const floor = document.getElementById('floor');
+  if (!floor) return;
+  floorView.fitScale = computeFitScale();
+  floorView.scale = floorView.fitScale;
+  // Center the canvas in the viewport
+  floorView.tx = (floor.clientWidth - FLOOR_W * floorView.scale) / 2;
+  floorView.ty = (floor.clientHeight - FLOOR_H * floorView.scale) / 2;
+  floorView.isCustom = false;
+  applyFloorTransform();
+}
+
+function floorZoom(factor) {
+  const floor = document.getElementById('floor');
+  if (!floor) return;
+  const oldScale = floorView.scale;
+  // Clamp scale: don't zoom out smaller than fit, don't zoom in past 3x fit
+  const minScale = floorView.fitScale || computeFitScale();
+  const maxScale = (floorView.fitScale || computeFitScale()) * 4;
+  const newScale = Math.max(minScale, Math.min(maxScale, oldScale * factor));
+  if (newScale === oldScale) return;
+  // Zoom around the center of the viewport
+  const cx = floor.clientWidth / 2;
+  const cy = floor.clientHeight / 2;
+  // Canvas point under center BEFORE zoom
+  const canvasX = (cx - floorView.tx) / oldScale;
+  const canvasY = (cy - floorView.ty) / oldScale;
+  floorView.scale = newScale;
+  // Recompute translation so the same canvas point stays under the center
+  floorView.tx = cx - canvasX * newScale;
+  floorView.ty = cy - canvasY * newScale;
+  floorView.isCustom = newScale !== floorView.fitScale;
+  applyFloorTransform();
+}
+
+// Convert a clientX/Y (mouse/touch event coords) to canvas coordinates,
+// accounting for current scale and translation.
+function clientToCanvas(clientX, clientY) {
+  const floor = document.getElementById('floor');
+  const rect = floor.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left - floorView.tx) / floorView.scale,
+    y: (clientY - rect.top - floorView.ty) / floorView.scale,
+  };
+}
+
+// Touch handlers for pinch-zoom and pan on the floor itself
+(function setupFloorGestures() {
+  let touchState = null; // { mode: 'pan'|'pinch', ... }
+  const floor = () => document.getElementById('floor');
+
+  function onTouchStart(e) {
+    // Ignore if the touch started on a table (table dragging handles its own touches in edit mode)
+    if (e.target.closest('.table-el')) return;
+    // Ignore if pressing a zoom button
+    if (e.target.closest('.floor-zoom-controls')) return;
+    if (e.touches.length === 1) {
+      touchState = {
+        mode: 'pan',
+        startX: e.touches[0].clientX,
+        startY: e.touches[0].clientY,
+        startTx: floorView.tx,
+        startTy: floorView.ty,
+      };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      touchState = {
+        mode: 'pinch',
+        startDist: dist,
+        startScale: floorView.scale,
+        startMidX: midX,
+        startMidY: midY,
+        startTx: floorView.tx,
+        startTy: floorView.ty,
+      };
+    }
+  }
+
+  function onTouchMove(e) {
+    if (!touchState) return;
+    e.preventDefault();
+    if (touchState.mode === 'pan' && e.touches.length === 1) {
+      const dx = e.touches[0].clientX - touchState.startX;
+      const dy = e.touches[0].clientY - touchState.startY;
+      floorView.tx = touchState.startTx + dx;
+      floorView.ty = touchState.startTy + dy;
+      floorView.isCustom = true;
+      applyFloorTransform();
+    } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const ratio = dist / touchState.startDist;
+      const minScale = floorView.fitScale || computeFitScale();
+      const maxScale = minScale * 4;
+      let newScale = Math.max(minScale, Math.min(maxScale, touchState.startScale * ratio));
+      // Adjust translation so the pinch midpoint stays anchored
+      const f = floor();
+      const rect = f.getBoundingClientRect();
+      const midX = touchState.startMidX - rect.left;
+      const midY = touchState.startMidY - rect.top;
+      // Canvas point under the midpoint at START of pinch
+      const canvasX = (midX - touchState.startTx) / touchState.startScale;
+      const canvasY = (midY - touchState.startTy) / touchState.startScale;
+      floorView.scale = newScale;
+      floorView.tx = midX - canvasX * newScale;
+      floorView.ty = midY - canvasY * newScale;
+      floorView.isCustom = true;
+      applyFloorTransform();
+    }
+  }
+
+  function onTouchEnd(e) {
+    if (e.touches.length === 0) touchState = null;
+  }
+
+  // Use document-level once we know there's a floor. Attach when floor exists.
+  function attach() {
+    const f = floor();
+    if (!f || f.dataset.gesturesBound) return;
+    f.dataset.gesturesBound = '1';
+    f.addEventListener('touchstart', onTouchStart, { passive: true });
+    f.addEventListener('touchmove', onTouchMove, { passive: false });
+    f.addEventListener('touchend', onTouchEnd);
+    f.addEventListener('touchcancel', onTouchEnd);
+    // Mouse wheel zoom (laptop convenience)
+    f.addEventListener('wheel', e => {
+      if (!e.ctrlKey && !e.metaKey) return; // only zoom on ctrl+wheel
+      e.preventDefault();
+      floorZoom(e.deltaY < 0 ? 1.1 : 0.9);
+    }, { passive: false });
+  }
+  // Try attaching on DOM ready & after each render
+  if (document.readyState !== 'loading') attach(); else document.addEventListener('DOMContentLoaded', attach);
+  window._attachFloorGestures = attach;
+})();
+
+// Recompute fit on window resize
+window.addEventListener('resize', () => {
+  if (!floorView.isCustom) floorZoomReset();
+});
+// One-time migration: if a table is outside the current canvas (left over from
+// the old 1600×1000 canvas), we scale it down to fit.
+function migrateTablesIfNeeded() {
+  if (!state.tables.length) return false;
+  // Look for tables that suggest they're on the old big canvas
+  const needsMigration = state.tables.some(t =>
+    (t.x || 0) + (t.width || 80) > FLOOR_W + 20 ||
+    (t.y || 0) + (t.height || 80) > FLOOR_H + 20
+  );
+  if (!needsMigration) return false;
+  // Compute current bounding box of all tables
+  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+  for (const t of state.tables) {
+    const x = t.x || 0, y = t.y || 0, w = t.width || 80, h = t.height || 80;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x + w > maxX) maxX = x + w;
+    if (y + h > maxY) maxY = y + h;
+  }
+  // Treat the layout as occupying that box. Scale uniformly to fit within
+  // 92% of the new canvas to leave a margin.
+  const targetW = FLOOR_W * 0.92;
+  const targetH = FLOOR_H * 0.92;
+  const usedW = maxX - minX || 1;
+  const usedH = maxY - minY || 1;
+  const scale = Math.min(targetW / usedW, targetH / usedH);
+  // Shift to origin then scale
+  for (const t of state.tables) {
+    const x = t.x || 0, y = t.y || 0, w = t.width || 80, h = t.height || 80;
+    t.x = Math.round((x - minX) * scale + (FLOOR_W - usedW * scale) / 2);
+    t.y = Math.round((y - minY) * scale + (FLOOR_H - usedH * scale) / 2);
+    t.width = Math.max(50, Math.round(w * scale));
+    t.height = Math.max(50, Math.round(h * scale));
+    t.updated = Date.now();
+  }
+  return true;
+}
+
+// Manager utility: spread tables to fill the canvas with a margin.
+// Non-uniform scaling (x and y independent) so tables stretch to use both width AND height.
+// Tables themselves get bigger too (proportional to the average stretch).
+function fillCanvas() {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); openManagerModal(); return; }
+  bumpManagerActivity();
+  if (!state.tables.length) { toast('No tables to spread'); return; }
+  if (!confirm('Spread tables to fill the canvas?\n\nThis stretches their positions to fill the whole floor and slightly enlarges them for easier tapping. You can undo by re-dragging individual tables.')) return;
+  // Bounding box of current layout
+  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+  for (const t of state.tables) {
+    const x = t.x || 0, y = t.y || 0, w = t.width || 80, h = t.height || 80;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x + w > maxX) maxX = x + w;
+    if (y + h > maxY) maxY = y + h;
+  }
+  const usedW = maxX - minX || 1;
+  const usedH = maxY - minY || 1;
+  // Target: use 90% of the canvas
+  const targetW = FLOOR_W * 0.9;
+  const targetH = FLOOR_H * 0.9;
+  const scaleX = targetW / usedW;
+  const scaleY = targetH / usedH;
+  // Average scale used to grow the tables themselves
+  const tableGrowth = (scaleX + scaleY) / 2;
+  const marginX = (FLOOR_W - usedW * scaleX) / 2;
+  const marginY = (FLOOR_H - usedH * scaleY) / 2;
+  for (const t of state.tables) {
+    const x = t.x || 0, y = t.y || 0, w = t.width || 80, h = t.height || 80;
+    // Spread the positions (using each axis's scale)
+    t.x = Math.round((x - minX) * scaleX + marginX);
+    t.y = Math.round((y - minY) * scaleY + marginY);
+    // Grow the tables themselves uniformly so they don't distort
+    t.width = Math.max(60, Math.min(220, Math.round(w * tableGrowth)));
+    t.height = Math.max(60, Math.min(220, Math.round(h * tableGrowth)));
+    t.updated = Date.now();
+  }
+  state.dirty = true;
+  push('tables');
+  renderFloor();
+  toast('Tables spread to fill canvas');
+}
+
+function renderFloor() {
+  const inner = document.getElementById('floorInner');
+  const empty = document.getElementById('floorEmpty');
+  inner.style.width = FLOOR_W + 'px';
+  inner.style.height = FLOOR_H + 'px';
+  inner.innerHTML = '';
+  empty.style.display = state.tables.length ? 'none' : 'flex';
+
+  // First time? Auto-fit. Later renders preserve the user's zoom/pan.
+  if (!floorView.fitScale) {
+    floorZoomReset();
+    // The floor element may not be sized yet on initial load; retry shortly.
+    if (!floorView.fitScale || floorView.fitScale === 0) {
+      setTimeout(floorZoomReset, 50);
+    }
+  } else {
+    applyFloorTransform();
+  }
+  if (window._attachFloorGestures) window._attachFloorGestures();
+
+  // Section legend (when shift active)
+  const legend = document.getElementById('sectionLegend');
+  if (isShiftActive() && isOpenFloor()) {
+    const queue = rotationQueue();
+    const next = queue[0];
+    let html = '<span class="leg floater"><span class="swatch"></span>Open floor</span>';
+    if (next) {
+      html += ` <span class="${next.skippedAt ? 'legend-tag-skipped' : 'legend-tag-next'}">${next.skippedAt ? '⚠ ' : '← '}NEXT: ${escapeHtml(next.name)}</span>`;
+    }
+    legend.innerHTML = html;
+  } else if (isShiftActive() && currentLayoutKey()) {
+    const staffing = parseInt(shiftGet('staffing', 0)) || 0;
+    const queue = rotationQueue();
+    let html = '';
+    for (let i = 1; i <= staffing; i++) {
+      const srv = state.servers.find(s => String(s.section) === String(i) && s.active);
+      let suffix = '';
+      if (srv) {
+        const pos = queue.findIndex(s => s.id === srv.id) + 1;
+        if (srv.skippedAt && pos === 1) suffix = ' <span class="legend-tag-skipped">⚠ SKIPPED · NEXT</span>';
+        else if (srv.skippedAt) suffix = ` <span class="legend-tag-skipped-quiet">⚠ Skipped · ${ordinal(pos)}</span>`;
+        else if (pos === 1) suffix = ' <span class="legend-tag-next">← NEXT</span>';
+        else if (pos > 1) suffix = ` <span style="color: var(--ink-soft); font-weight: 600;">· ${ordinal(pos)} up</span>`;
+      }
+      html += `<span class="leg s${i}"><span class="swatch"></span>${i}: ${srv ? escapeHtml(srv.name) : '—'}${suffix}</span>`;
+    }
+    html += '<span class="leg floater"><span class="swatch"></span>Floater</span>';
+    legend.innerHTML = html;
+  } else {
+    legend.innerHTML = '';
+  }
+
+  state.tables.forEach(t => {
+    const el = document.createElement('div');
+    // Effective status: if this table is in a combo and ANY member is seated,
+    // the whole combo should render as seated. This guarantees the visual is
+    // unified even if individual member writes haven't synced back yet from
+    // the server. Same for reserved.
+    let status = t.status || 'open';
+    if (isInCombo(t.id)) {
+      const ms = getComboMembers(t.id);
+      if (ms.some(x => x.status === 'seated')) status = 'seated';
+      else if (ms.some(x => x.status === 'reserved')) status = 'reserved';
+    }
+    const classes = ['table-el', `shape-${t.shape || 'square'}`, `status-${status}`];
+
+    // Section coloring + breathing
+    const section = isShiftActive() ? getSectionForTable(t.id) : null;
+    if (section) {
+      classes.push(section === 'floater' ? 'sec-floater' : `sec-${section}`);
+      if (section !== 'floater') {
+        const sectionServer = state.servers.find(sv => String(sv.section) === String(section) && sv.active);
+        if (sectionServer) {
+          const pos = rotationPosition(sectionServer.id);
+          if (pos === 1) {
+            if (sectionServer.skippedAt) classes.push('is-skipped');
+            else classes.push('is-next');
+          } else if (pos === 2) {
+            classes.push('is-ondeck');
+          }
+        }
+      }
+    }
+
+    if (state.editing) classes.push('editing');
+    if (isLeftoverTable(t)) classes.push('leftover');
+    // Combo indicator: tables in a combo group get a colored halo + chain badge.
+    if (isInCombo(t.id)) {
+      classes.push('in-combo');
+      const primary = getComboPrimary(t.id);
+      if (primary && primary.id === t.id) classes.push('combo-primary');
+    }
+    // Pending-combine flow: highlight the primary so the host sees what they're growing.
+    if (state.pendingCombine && state.pendingCombine.primaryId === t.id) {
+      classes.push('combo-pending-primary');
+    }
+    // In pending-combine mode, dim seated/reserved tables that can't be added.
+    if (state.pendingCombine && status !== 'open') {
+      classes.push('dim');
+    }
+    el.className = classes.join(' ');
+    el.style.left = (t.x || 50) + 'px';
+    el.style.top = (t.y || 50) + 'px';
+    el.style.width = (t.width || 80) + 'px';
+    el.style.height = (t.height || 80) + 'px';
+    el.dataset.id = t.id;
+
+    // Server tag
+    const srv = getServerForTable(t.id);
+    let serverTag = '';
+    if (srv && (status === 'seated' || isShiftActive())) {
+      const isHandoff = t.assignedServerId && t.assignedServerId === srv.id;
+      const tagClass = isHandoff ? ' (h)' : '';
+      serverTag = `<div class="t-server-tag">${escapeHtml(srv.name)}${tagClass}</div>`;
+    }
+
+    // Selected-server filter dim
+    if (state.selectedServerId && srv && srv.id !== state.selectedServerId) {
+      el.classList.add('dim');
+    }
+    if (state.selectedServerId && srv && srv.id === state.selectedServerId) {
+      el.classList.add('highlight');
+    }
+
+    // Combo: no badge — we draw connector lines on the SVG layer below.
+    // Every member tile shows the SAME party info (combined seats, plus party
+    // name when seated) so the floor reads as “one party across N tables”.
+    let seatsText = (t.seats || 0) + ' seats';
+    let partyLine = '';
+    if (isInCombo(t.id)) {
+      const totalSeats = comboTotalSeats(t.id);
+      seatsText = totalSeats + ' seats · combo';
+      if (status === 'seated') {
+        const wl = getSeatedWaitlistForTable(t.id);
+        if (wl && wl.name) {
+          partyLine = `<div class="t-party">${escapeHtml(wl.name)} (${wl.partySize || 0})</div>`;
+        }
+      }
+    } else if (status === 'seated') {
+      // Solo seated tables also benefit from showing the party name when known.
+      const wl = getSeatedWaitlistForTable(t.id);
+      if (wl && wl.name) {
+        partyLine = `<div class="t-party">${escapeHtml(wl.name)} (${wl.partySize || 0})</div>`;
+      }
+    }
+    el.innerHTML = `
+      <div class="t-label">${escapeHtml(t.label || '')}</div>
+      <div class="t-seats">${seatsText}</div>
+      ${partyLine}
+      ${serverTag}
+      ${state.editing ? '<div class="resize-handle"></div>' : ''}
+    `;
+
+    if (state.editing) {
+      attachDragResize(el, t);
+    } else {
+      el.addEventListener('click', () => onTableClick(t.id));
+    }
+    inner.appendChild(el);
+  });
+
+  // Draw connector lines between combo members so the host sees the group visually.
+  renderComboConnectors(inner);
+
+  document.getElementById('cntTables').textContent =
+    state.tables.filter(t => t.status === 'seated').length + '/' + state.tables.length;
+}
+
+// Draw SVG lines from each combo's primary to each of its other members. The SVG
+// sits behind the table tiles (z-index 0 vs. tables which are higher) so the
+// lines don't block taps and don't visually overpower the tiles.
+function renderComboConnectors(inner) {
+  // Group tables by combo primary id; only render groups with 2+ members.
+  const groups = new Map(); // primaryId -> [tables]
+  for (const t of state.tables) {
+    if (!isInCombo(t.id)) continue;
+    const primary = getComboPrimary(t.id);
+    if (!primary) continue;
+    if (!groups.has(primary.id)) groups.set(primary.id, []);
+    groups.get(primary.id).push(t);
+  }
+  if (!groups.size) return;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', FLOOR_W);
+  svg.setAttribute('height', FLOOR_H);
+  svg.setAttribute('viewBox', `0 0 ${FLOOR_W} ${FLOOR_H}`);
+  svg.style.cssText = 'position:absolute;top:0;left:0;width:' + FLOOR_W + 'px;height:' + FLOOR_H + 'px;pointer-events:none;z-index:0;';
+
+  function center(tab) {
+    return {
+      x: (tab.x || 0) + (tab.width  || 80) / 2,
+      y: (tab.y || 0) + (tab.height || 80) / 2,
+    };
+  }
+
+  for (const [primaryId, members] of groups) {
+    const primary = state.tables.find(x => x.id === primaryId);
+    if (!primary) continue;
+    const p = center(primary);
+    for (const m of members) {
+      if (m.id === primaryId) continue;
+      const c = center(m);
+      // Outer halo line (thicker, soft)
+      const halo = document.createElementNS(svgNS, 'line');
+      halo.setAttribute('x1', p.x); halo.setAttribute('y1', p.y);
+      halo.setAttribute('x2', c.x); halo.setAttribute('y2', c.y);
+      halo.setAttribute('stroke', 'rgba(194, 65, 12, 0.30)');
+      halo.setAttribute('stroke-width', '14');
+      halo.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(halo);
+      // Inner solid line
+      const line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('x1', p.x); line.setAttribute('y1', p.y);
+      line.setAttribute('x2', c.x); line.setAttribute('y2', c.y);
+      line.setAttribute('stroke', 'rgba(194, 65, 12, 0.95)');
+      line.setAttribute('stroke-width', '4');
+      line.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(line);
+    }
+  }
+  // Insert behind tables
+  inner.insertBefore(svg, inner.firstChild);
+}
+
+function onTableClick(tableId) {
+  // If we're picking a table for moving / handing off / seating from list, route there
+  if (state.pendingMove) { confirmMoveToTable(tableId); return; }
+  if (state.pendingSeat) { confirmSeatAtTable(tableId); return; }
+  if (state.pendingCombine) { addTableToPendingCombo(tableId); return; }
+  // Otherwise show the actions modal
+  openTableActions(tableId);
+}
+
+function attachDragResize(el, table) {
+  let mode = null;
+  let startX, startY, startLeft, startTop, startW, startH;
+  function onDown(e) {
+    e.preventDefault();
+    const pt = e.touches ? e.touches[0] : e;
+    if (e.target.classList.contains('resize-handle')) {
+      mode = 'resize'; startW = table.width; startH = table.height;
+    } else { mode = 'drag'; startLeft = table.x; startTop = table.y; }
+    startX = pt.clientX; startY = pt.clientY;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
+  function onMove(e) {
+    e.preventDefault();
+    const pt = e.touches ? e.touches[0] : e;
+    // Movement is in screen pixels — convert to canvas pixels by dividing by scale
+    const s = floorView.scale || 1;
+    const dx = (pt.clientX - startX) / s;
+    const dy = (pt.clientY - startY) / s;
+    if (mode === 'drag') {
+      table.x = Math.max(0, Math.min(FLOOR_W - table.width, startLeft + dx));
+      table.y = Math.max(0, Math.min(FLOOR_H - table.height, startTop + dy));
+      el.style.left = table.x + 'px'; el.style.top = table.y + 'px';
+    } else if (mode === 'resize') {
+      table.width = Math.max(50, Math.min(400, startW + dx));
+      table.height = Math.max(50, Math.min(400, startH + dy));
+      el.style.width = table.width + 'px'; el.style.height = table.height + 'px';
+    }
+  }
+  function onUp() {
+    mode = null;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+    table.updated = Date.now();
+    state.dirty = true; push('tables');
+  }
+  el.addEventListener('mousedown', onDown);
+  el.addEventListener('touchstart', onDown, { passive: false });
+}
+
+document.getElementById('editLayoutBtn').addEventListener('click', () => {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); openManagerModal(); return; }
+  bumpManagerActivity();
+  state.editing = !state.editing;
+  document.getElementById('editLayoutBtn').textContent = state.editing ? 'Done' : 'Edit Layout';
+  document.getElementById('floorLegend').textContent = state.editing
+    ? 'Drag to move · corner handle to resize'
+    : 'Tap a table to act';
+  document.getElementById('floor').classList.toggle('editing', state.editing);
+  renderFloor();
+});
+
+document.getElementById('addTableBtn').addEventListener('click', () => {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); openManagerModal(); return; }
+  bumpManagerActivity();
+  document.getElementById('newTableLabel').value = (state.tables.length + 1).toString();
+  document.getElementById('newTableSeats').value = 4;
+  document.getElementById('newTableShape').value = 'square';
+  openModal('addTableModal');
+});
+
+function confirmAddTable() {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); closeModal('addTableModal'); return; }
+  bumpManagerActivity();
+  const label = document.getElementById('newTableLabel').value.trim() || (state.tables.length + 1).toString();
+  const seats = parseInt(document.getElementById('newTableSeats').value) || 4;
+  const shape = document.getElementById('newTableShape').value;
+  const isCircle = shape === 'circle';
+  const size = Math.max(70, 50 + seats * 8);
+  state.tables.push({
+    id: uid('tbl'), label, seats, shape,
+    x: 60 + (state.tables.length % 8) * 110,
+    y: 60 + Math.floor(state.tables.length / 8) * 110,
+    width: isCircle ? size : size + 10, height: size,
+    status: 'open', section: '', assignedServerId: '',
+    updated: Date.now(),
+  });
+  state.dirty = true;
+  push('tables');
+  closeModal('addTableModal');
+  renderFloor();
+  refreshResTablePref();
+}
+
+function openRenameTable(tableId) {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); return; }
+  bumpManagerActivity();
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+  state.pendingTable = tableId;
+  document.getElementById('renameTableLabel').value = t.label || '';
+  document.getElementById('renameTableSeats').value = t.seats || 4;
+  document.getElementById('renameTableShape').value = t.shape || 'square';
+  closeModal('tableActionsModal');
+  openModal('renameTableModal');
+}
+
+function confirmRenameTable() {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); return; }
+  bumpManagerActivity();
+  const t = state.tables.find(x => x.id === state.pendingTable);
+  if (!t) { closeModal('renameTableModal'); return; }
+  const label = document.getElementById('renameTableLabel').value.trim();
+  const seats = parseInt(document.getElementById('renameTableSeats').value) || 4;
+  const shape = document.getElementById('renameTableShape').value;
+  if (!label) { toast('Label required'); return; }
+  t.label = label;
+  t.seats = seats;
+  t.shape = shape;
+  t.updated = Date.now();
+  push('tables');
+  closeModal('renameTableModal');
+  state.pendingTable = null;
+  toast('Table updated');
+  renderFloor();
+  refreshResTablePref();
+}
+
+// ============================================================
+// TABLE ACTIONS MODAL (the heart of the seating UI)
+// ============================================================
+function openTableActions(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+  state.pendingTable = tableId;
+  const status = t.status || 'open';
+  const srv = getServerForTable(tableId);
+  const section = getSectionForTable(tableId);
+
+  let html = `<h2>Table ${escapeHtml(t.label)}</h2>`;
+  html += `<p style="font-size: 12px; color: var(--ink-soft);">
+    ${section ? 'Section ' + section : (isShiftActive() ? 'No section assigned' : '')}${srv ? ' · ' + escapeHtml(srv.name) : ''}
+    · ${t.seats} seats · Currently <strong>${status}</strong>
+  </p>`;
+
+  if (status === 'open') {
+    const inCombo = isInCombo(tableId);
+    const memberCount = inCombo ? getComboMembers(tableId).length : 1;
+    const totalSeats = inCombo ? comboTotalSeats(tableId) : (t.seats || 0);
+    if (inCombo) {
+      html += `<p style="font-size: 12px; color: var(--accent); margin-top: -8px;">
+        🔗 Combined with ${memberCount - 1} other table${memberCount > 2 ? 's' : ''} · ${totalSeats} seats total
+      </p>`;
+    }
+    html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;">`;
+    const seatLabel = inCombo ? `Seat walk-in (combo)` : 'Seat walk-in';
+    html += `<button class="btn btn-primary" onclick="seatWalkInAtTable('${tableId}')">${seatLabel}</button>`;
+    html += `<button class="btn" onclick="setStatus('${tableId}', 'reserved')">Mark reserved</button>`;
+    if (inCombo) {
+      html += `<button class="btn" onclick="beginAddToCombo('${tableId}')">+ Add another table</button>`;
+      html += `<button class="btn btn-warn" onclick="breakComboFromUI('${tableId}')">Break combo</button>`;
+    } else {
+      html += `<button class="btn" onclick="beginAddToCombo('${tableId}')" style="grid-column: 1 / -1;">🔗 Combine with another table</button>`;
+    }
+    html += `</div>`;
+  } else if (status === 'seated') {
+    const inCombo = isInCombo(tableId);
+    const memberCount = inCombo ? getComboMembers(tableId).length : 1;
+    if (inCombo) {
+      html += `<p style="font-size: 12px; color: var(--accent); margin-top: -8px;">
+        🔗 Seated as a combo of ${memberCount} tables
+      </p>`;
+    }
+    html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;">`;
+    const clearLabel = inCombo ? 'Mark open (all tables · party left)' : 'Mark open (party left)';
+    html += `<button class="btn btn-primary" style="${inCombo ? 'grid-column: 1 / -1;' : ''}" onclick="setStatus('${tableId}', 'open')">${clearLabel}</button>`;
+    if (!inCombo) {
+      html += `<button class="btn" onclick="beginMove('${tableId}')">Move party</button>`;
+    }
+    if (isShiftActive() && state.servers.filter(s => s.active).length > 1) {
+      html += `<button class="btn" onclick="beginHandoff('${tableId}')">Hand off to another server</button>`;
+    }
+    html += `</div>`;
+  } else if (status === 'reserved') {
+    html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;">`;
+    html += `<button class="btn btn-primary" onclick="seatWalkInAtTable('${tableId}')">Seat now</button>`;
+    html += `<button class="btn" onclick="setStatus('${tableId}', 'open')">Cancel reserve</button>`;
+    html += `</div>`;
+  }
+
+  html += `<div class="modal-actions" style="justify-content: space-between; align-items: center;">
+    <div style="display: flex; gap: 6px;">
+      ${isManagerUnlocked() ? `<button class="btn btn-ghost btn-sm" onclick="openRenameTable('${tableId}')">Edit table</button>` : ''}
+      ${isManagerUnlocked() ? `<button class="btn btn-warn btn-sm" onclick="deleteTable('${tableId}')">Delete</button>` : ''}
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal('tableActionsModal'); state.pendingTable=null;">Close</button>
+  </div>`;
+
+  document.getElementById('tableActionsModalContent').innerHTML = html;
+  openModal('tableActionsModal');
+}
+
+function setStatus(tableId, status) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+  const wasSeated = t.status === 'seated';
+  // If this table is part of a combo, the status change applies to ALL members
+  // (party leaves together, gets re-marked together). When clearing back to open,
+  // we also auto-break the combo so the floor is clean for the next seating.
+  // Explicit per-member writes for status/assignedServerId/seatedAtShift/updated
+  // so the unseat path is visibly symmetric with the seating paths.
+  const members = getComboMembers(tableId);
+  members.forEach(m => {
+    m.status = status;
+    m.updated = Date.now();
+    if (status === 'open') {
+      m.assignedServerId = '';
+      m.seatedAtShift = '';
+    }
+  });
+  if (status === 'open' && members.length > 1) {
+    breakCombo(tableId); // auto-break: party left
+  }
+  state.dirty = true;
+  push('tables');
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  renderFloor();
+  renderShiftBar();
+  recomputeServerLoads();
+  push('servers');
+}
+
+function deleteTable(tableId) {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); return; }
+  bumpManagerActivity();
+  if (!confirm('Delete this table?')) return;
+  state.tables = state.tables.filter(x => x.id !== tableId);
+  state.layouts = state.layouts.filter(l => l.tableId !== tableId);
+  push('tables'); push('layouts');
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  renderFloor();
+  refreshResTablePref();
+}
+
+// ============================================================
+// SEAT FLOWS
+// ============================================================
+
+// Seat directly at a table (walk-in without going through waitlist)
+function seatWalkInAtTable(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+
+  // Floater table during a shift → ask which server
+  if (isShiftActive() && getSectionForTable(tableId) === 'floater') {
+    closeModal('tableActionsModal');
+    state.pendingTable = null;
+    openFloaterServerPicker(tableId, /*forWalkIn*/ true);
+    return;
+  }
+
+  // If this table is part of a combo, seat all members together. The rotation
+  // tally still uses the PRIMARY's section/server — one party = one tick.
+  const members = getComboMembers(tableId);
+  const primary = members[0];
+  // Resolve the server BEFORE we mutate, so assignedServerId can be replicated
+  // onto every member (per the explicit propagation requirement).
+  const resolvedServer = isShiftActive() ? getServerForTable(primary.id) : null;
+  const shiftStart = shiftGet('startedAt', '') || '';
+  members.forEach(m => {
+    // Explicit per-member writes (redundant with stampSeated but spelled out
+    // so it's obvious every member gets the same seated state).
+    m.status = 'seated';
+    m.seatedAtShift = shiftStart;
+    m.assignedServerId = resolvedServer ? resolvedServer.id : '';
+    m.updated = Date.now();
+  });
+
+  // Update server rotation: if shift active, this counts as a seat for the
+  // PRIMARY table's section's server (one combo = one rotation tick).
+  if (isShiftActive()) {
+    if (resolvedServer) {
+      markSeated(resolvedServer.id);
+      recordLastSeat({ tableId: primary.id, serverId: resolvedServer.id });
+    }
+    // (no else — non-floater with no server is a configuration gap, not a skip event)
+  }
+
+  state.dirty = true;
+  push('tables'); push('servers');
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  toast(members.length > 1
+    ? `Seated combo of ${members.length} tables (${comboTotalSeats(primary.id)} seats)`
+    : 'Seated at ' + t.label);
+  renderFloor();
+  renderShiftBar();
+}
+
+// ============================================================
+// FLOATER SERVER PICKER
+// ============================================================
+// Used when host picks a floater table to seat at.
+// Two entry points: direct walk-in seat, or seat from waitlist/reservation.
+let pendingFloaterChoice = null; // { tableId, forWalkIn }
+
+function openFloaterServerPicker(tableId, forWalkIn) {
+  pendingFloaterChoice = { tableId, forWalkIn };
+  const list = document.getElementById('floaterServerList');
+  const queue = rotationQueue();
+  const suggested = queue[0]; // next-up — may be skipped or not
+  list.innerHTML = '';
+  // Render suggested first as a big prominent button
+  if (suggested) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.style.justifyContent = 'flex-start';
+    btn.style.padding = '12px 14px';
+    btn.style.fontSize = '15px';
+    const tables = (suggested.tablesOwn || 0) + (suggested.tablesHandoff || 0);
+    btn.innerHTML = `
+      <strong>${escapeHtml(suggested.name)}</strong>
+      <span style="opacity: .85; font-family: 'DM Mono', monospace; font-size: 11px; margin-left: 8px;">
+        Sec ${suggested.section} · ${tables} tables · ${suggested.skippedAt ? 'SKIPPED · ' : ''}NEXT UP
+      </span>
+    `;
+    btn.onclick = () => confirmFloaterServer(suggested.id);
+    list.appendChild(btn);
+  }
+  // Then a small divider
+  if (queue.length > 1) {
+    const div = document.createElement('div');
+    div.style.cssText = 'font-family:DM Mono,monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-soft);margin:8px 0 2px;';
+    div.textContent = 'Or assign to:';
+    list.appendChild(div);
+  }
+  // Render alternatives in queue order (skipping the suggested one)
+  queue.slice(1).forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost';
+    btn.style.justifyContent = 'flex-start';
+    const tables = (s.tablesOwn || 0) + (s.tablesHandoff || 0);
+    const pos = queue.findIndex(x => x.id === s.id) + 1;
+    btn.innerHTML = `
+      <strong>${escapeHtml(s.name)}</strong>
+      <span style="opacity: .6; font-family: 'DM Mono', monospace; font-size: 11px; margin-left: 8px;">
+        Sec ${s.section} · ${tables} tables · ${s.skippedAt ? 'Skipped · ' : ''}${ordinal(pos)} up
+      </span>
+    `;
+    btn.onclick = () => confirmFloaterServer(s.id);
+    list.appendChild(btn);
+  });
+  if (!list.children.length) {
+    list.innerHTML = '<p style="color: var(--ink-soft); font-size: 13px;">No active servers.</p>';
+  }
+  openModal('floaterServerModal');
+}
+
+function cancelFloaterSeat() {
+  closeModal('floaterServerModal');
+  pendingFloaterChoice = null;
+  // If a pendingSeat was set (waitlist/res flow), keep it — the user might pick a different table.
+}
+
+function confirmFloaterServer(serverId) {
+  if (!pendingFloaterChoice) { closeModal('floaterServerModal'); return; }
+  const { tableId, forWalkIn } = pendingFloaterChoice;
+  closeModal('floaterServerModal');
+  pendingFloaterChoice = null;
+  // Now apply the seat with the chosen server pre-assigned.
+  applyFloaterSeat(tableId, serverId, forWalkIn);
+}
+
+function applyFloaterSeat(tableId, serverId, forWalkIn) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+
+  // Capture the queue BEFORE we mark anything, so we know who got skipped.
+  const queueBefore = rotationQueue();
+  const positionOfChosen = queueBefore.findIndex(s => s.id === serverId);
+
+  // Set table seated and pre-assign the chosen server (this is how getServerForTable
+  // will return that server even though the section is floater).
+  stampSeated(t);
+  t.assignedServerId = serverId;
+
+  // If this is a wait/res seat, also update the waitlist/reservation entry
+  let partySize = 0;
+  let undoWaitlistId = '';
+  let undoResId = '';
+  if (!forWalkIn && state.pendingSeat) {
+    const { type, id } = state.pendingSeat;
+    if (type === 'wait') {
+      const w = state.waitlist.find(x => x.id === id);
+      if (w) {
+        w.status = 'seated';
+        w.seatedAt = Date.now();
+        w.tableId = tableId;
+        w.serverIdAtSeat = serverId;
+        partySize = w.partySize || 0;
+        undoWaitlistId = w.id;
+      }
+    } else if (type === 'res') {
+      const r = state.reservations.find(x => x.id === id);
+      if (r) {
+        r.status = 'arrived';
+        r.tableId = tableId;
+        partySize = r.partySize || 0;
+        undoResId = r.id;
+        state.waitlist.push({
+          id: uid('w'), name: r.name, partySize, phone: r.phone || '',
+          notes: r.notes || '', addedAt: Date.now(), status: 'seated',
+          seatedAt: Date.now(), tableId, serverIdAtSeat: serverId, walkReason: '',
+        });
+      }
+    }
+    state.pendingSeat = null;
+  }
+
+  // Rotation updates:
+  // 1) Mark every server who was AHEAD of the chosen server in the queue as skipped.
+  const skippedServerIds = [];
+  if (positionOfChosen > 0) {
+    for (let i = 0; i < positionOfChosen; i++) {
+      const skippedServer = queueBefore[i];
+      // Don't re-mark someone already skipped — that would reset their skip time
+      if (!skippedServer.skippedAt && skippedServer.id !== serverId) {
+        markSkipped(skippedServer.id);
+        skippedServerIds.push(skippedServer.id);
+      }
+    }
+  }
+  // 2) The chosen server gets credit: clears their own skip, updates lastSeatedAt
+  markSeated(serverId);
+  // 3) Record for undo
+  recordLastSeat({ tableId, serverId, waitlistId: undoWaitlistId, resId: undoResId, skippedServerIds });
+
+  state.dirty = true;
+  pushAll();
+  if (forWalkIn) {
+    toast('Seated at ' + t.label);
+    renderFloor();
+    renderShiftBar();
+  } else {
+    closeModal('seatModal');
+    toast('Seated at ' + t.label);
+    goToView('floor');
+    render();
+  }
+}
+
+// "Begin seat" from waitlist or reservation
+function beginSeat(type, id, name) {
+  state.pendingSeat = { type, id };
+  document.getElementById('seatModalName').textContent = name;
+  document.getElementById('seatModalLead').innerHTML = isShiftActive()
+    ? 'Pick a table. <strong>Recommended</strong> tables (green) match the next-up server.'
+    : 'Pick any open table.';
+  renderSeatPicker();
+  openModal('seatModal');
+}
+
+function renderSeatPicker() {
+  const grid = document.getElementById('seatPicker');
+  grid.innerHTML = '';
+  if (!state.tables.length) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--ink-soft);">No tables yet. Add some on the Floor tab.</div>';
+    return;
+  }
+  const next = isShiftActive() ? nextUpServer() : null;
+  state.tables.forEach(t => {
+    const btn = document.createElement('button');
+    btn.className = 'picker-table';
+    btn.style.background =
+      t.status === 'seated' ? 'var(--accent)' :
+      t.status === 'reserved' ? 'var(--ink)' : 'var(--paper)';
+    btn.style.color = (t.status === 'seated' || t.status === 'reserved') ? 'var(--paper)' : 'var(--ink)';
+    const sec = getSectionForTable(t.id);
+    const srv = getServerForTable(t.id);
+    const isRec = next && srv && srv.id === next.id && t.status === 'open';
+    if (isRec) btn.classList.add('recommended');
+    const secMarker = sec
+      ? `<div class="sec-marker ${sectionBadgeClass(sec)}">${sec === 'floater' ? '★' : sec}</div>`
+      : '';
+    btn.innerHTML = `
+      ${secMarker}
+      ${isRec ? '<div class="rec-tag">Up</div>' : ''}
+      ${escapeHtml(t.label)}
+      <span class="ps">${t.seats} seats</span>
+      ${srv ? `<span class="pserver">${escapeHtml(srv.name)}</span>` : ''}
+    `;
+    btn.onclick = () => confirmSeatAtTable(t.id);
+    grid.appendChild(btn);
+  });
+}
+
+function confirmSeatAtTable(tableId) {
+  if (!state.pendingSeat) { closeModal('seatModal'); return; }
+  const table = state.tables.find(t => t.id === tableId);
+  if (!table) return;
+
+  // Floater table during a shift → server picker first
+  if (isShiftActive() && getSectionForTable(tableId) === 'floater') {
+    closeModal('seatModal');
+    openFloaterServerPicker(tableId, /*forWalkIn*/ false);
+    return;
+  }
+
+  const { type, id } = state.pendingSeat;
+
+  // If the picked table is part of a combo, all members get seated together.
+  // The waitlist/reservation record is attached to the PRIMARY of the combo
+  // so move/clear behavior stays consistent.
+  const comboMembers = getComboMembers(tableId);
+  const primaryTable = comboMembers[0];
+  const primaryId = primaryTable.id;
+  // Resolve the primary's server first so we can replicate it onto every
+  // member (per the explicit propagation requirement — spelled out so the
+  // mutation pattern is visible inside this function).
+  const resolvedServer = isShiftActive() ? getServerForTable(primaryId) : null;
+  const shiftStart = shiftGet('startedAt', '') || '';
+  comboMembers.forEach(m => {
+    m.status = 'seated';
+    m.seatedAtShift = shiftStart;
+    m.assignedServerId = resolvedServer ? resolvedServer.id : '';
+    m.updated = Date.now();
+  });
+
+  let partySize = 0;
+  if (type === 'wait') {
+    const w = state.waitlist.find(x => x.id === id);
+    if (w) {
+      w.status = 'seated';
+      w.seatedAt = Date.now();
+      w.tableId = primaryId;
+      partySize = w.partySize || 0;
+      // Capture which server got the seat
+      const srv = getServerForTable(primaryId);
+      w.serverIdAtSeat = srv ? srv.id : '';
+    }
+  } else if (type === 'res') {
+    const r = state.reservations.find(x => x.id === id);
+    if (r) {
+      r.status = 'arrived';
+      r.tableId = primaryId;
+      partySize = r.partySize || 0;
+      // Mirror to waitlist for tracking
+      const srv = getServerForTable(primaryId);
+      state.waitlist.push({
+        id: uid('w'), name: r.name, partySize, phone: r.phone || '',
+        notes: r.notes || '', addedAt: Date.now(), status: 'seated',
+        seatedAt: Date.now(), tableId: primaryId, serverIdAtSeat: srv ? srv.id : '', walkReason: '',
+      });
+    }
+  }
+
+  // Round-robin updates — the combo counts as ONE seat for the primary's section's server.
+  if (isShiftActive()) {
+    const targetSrv = getServerForTable(primaryId); // section's server (already determined; floater handled earlier)
+    if (targetSrv) {
+      // Capture queue before marking anyone, so we know who was ahead of the target.
+      const queueBefore = rotationQueue();
+      const targetPos = queueBefore.findIndex(s => s.id === targetSrv.id);
+      // Mark every server ahead of the target as skipped (if not already)
+      const skippedServerIds = [];
+      if (targetPos > 0) {
+        for (let i = 0; i < targetPos; i++) {
+          const s = queueBefore[i];
+          if (!s.skippedAt && s.id !== targetSrv.id) {
+            markSkipped(s.id);
+            skippedServerIds.push(s.id);
+          }
+        }
+      }
+      markSeated(targetSrv.id);
+      targetSrv.covers = (targetSrv.covers || 0) + partySize;
+      // Record for undo
+      recordLastSeat({
+        tableId: primaryId,
+        serverId: targetSrv.id,
+        waitlistId: type === 'wait' ? id : '',
+        resId: type === 'res' ? id : '',
+        skippedServerIds,
+      });
+    }
+    // (floater case is handled earlier via openFloaterServerPicker — never reaches here)
+  }
+
+  state.dirty = true;
+  pushAll();
+  closeModal('seatModal');
+  state.pendingSeat = null;
+  toast('Seated at ' + table.label);
+  goToView('floor');
+  render();
+}
+
+// Mark a server as having gotten a seat (clears any skip state on them)
+// Also increments the running total of tables they've handled this shift.
+function markSeated(serverId) {
+  const s = getServerById(serverId);
+  if (!s) return;
+  s.lastSeatedAt = Date.now();
+  s.skippedAt = ''; // clear skip
+  s.tablesTotal = (s.tablesTotal || 0) + 1;
+}
+
+// Mark a server as skipped: records the time, increments the skip count
+function markSkipped(serverId) {
+  const s = getServerById(serverId);
+  if (!s) return;
+  if (!s.skippedAt) {
+    s.skippedAt = Date.now();
+    s.skips = (s.skips || 0) + 1;
+    toast(s.name + ' was skipped — now next up');
+    logEvent('server_skipped', { serverId, name: s.name });
+  }
+}
+
+// ============================================================
+// UNDO LAST SEAT
+// ============================================================
+const UNDO_WINDOW_MS = 60 * 1000; // 60 seconds
+
+// Snapshot state right before applying a seat, so we can undo if needed.
+function recordLastSeat({ tableId, serverId, waitlistId, resId, skippedServerIds }) {
+  const srv = getServerById(serverId);
+  state.lastSeat = {
+    tableId,
+    serverId,
+    waitlistId: waitlistId || '',
+    resId: resId || '',
+    skippedServerIds: skippedServerIds || [],
+    prevTablesTotal: srv ? (srv.tablesTotal || 0) - 1 : 0,
+    prevLastSeatedAt: srv ? srv.lastSeatedAt : '',
+    ts: Date.now(),
+  };
+  renderUndoBar();
+  // Auto-clear after the window
+  setTimeout(() => {
+    if (state.lastSeat && Date.now() - state.lastSeat.ts >= UNDO_WINDOW_MS) {
+      state.lastSeat = null;
+      renderUndoBar();
+    }
+  }, UNDO_WINDOW_MS + 100);
+}
+
+function undoLastSeat() {
+  const ls = state.lastSeat;
+  if (!ls) return;
+  if (Date.now() - ls.ts > UNDO_WINDOW_MS) {
+    toast('Too late to undo'); state.lastSeat = null; renderUndoBar(); return;
+  }
+  // Restore the table to open
+  const t = state.tables.find(x => x.id === ls.tableId);
+  if (t) {
+    t.status = 'open';
+    t.assignedServerId = '';
+    t.seatedAtShift = '';
+    t.updated = Date.now();
+  }
+  // Restore the server's counter
+  const srv = getServerById(ls.serverId);
+  if (srv) {
+    srv.tablesTotal = ls.prevTablesTotal;
+    srv.lastSeatedAt = ls.prevLastSeatedAt;
+  }
+  // Restore any servers we marked skipped during this seat
+  (ls.skippedServerIds || []).forEach(id => {
+    const s = getServerById(id);
+    if (s && s.skippedAt) {
+      s.skippedAt = '';
+      s.skips = Math.max(0, (s.skips || 0) - 1);
+    }
+  });
+  // Restore waitlist entry to waiting (so the party comes back)
+  if (ls.waitlistId) {
+    const w = state.waitlist.find(x => x.id === ls.waitlistId);
+    if (w) {
+      w.status = 'waiting';
+      w.seatedAt = '';
+      w.tableId = '';
+      w.serverIdAtSeat = '';
+    }
+  }
+  // Restore reservation entry to booked
+  if (ls.resId) {
+    const r = state.reservations.find(x => x.id === ls.resId);
+    if (r) {
+      r.status = 'booked';
+      r.tableId = '';
+    }
+    // Also remove the auto-mirrored waitlist entry if it was a reservation
+    state.waitlist = state.waitlist.filter(w =>
+      !(w.tableId === ls.tableId && w.seatedAt >= ls.ts - 500 && w.seatedAt <= ls.ts + 500)
+    );
+  }
+  logEvent('seat_undone', { tableId: ls.tableId, serverId: ls.serverId, waitlistId: ls.waitlistId, resId: ls.resId });
+  state.lastSeat = null;
+  toast('Seat undone');
+  pushAll();
+  render();
+  renderUndoBar();
+}
+
+function renderUndoBar() {
+  let bar = document.getElementById('undoBar');
+  if (!state.lastSeat) {
+    if (bar) bar.remove();
+    return;
+  }
+  const ls = state.lastSeat;
+  const t = state.tables.find(x => x.id === ls.tableId);
+  const srv = getServerById(ls.serverId);
+  const tableLabel = t ? t.label : 'table';
+  const serverName = srv ? srv.name : 'server';
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'undoBar';
+    bar.className = 'undo-bar';
+    // Float the undo bar INSIDE the floor map so it doesn't push tables out
+    // of view. The .floor container is position:relative, so absolute children
+    // sit on top of the map.
+    const floor = document.getElementById('floor');
+    if (floor) {
+      floor.appendChild(bar);
+    } else {
+      // Fallback: drop it after the shift bar (old behavior) if the floor
+      // isn't in the DOM yet for some reason.
+      const shiftBar = document.getElementById('shiftBar');
+      if (shiftBar) shiftBar.parentNode.insertBefore(bar, shiftBar.nextSibling);
+    }
+  }
+  const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - ls.ts)) / 1000));
+  bar.innerHTML = `
+    <span class="ub-text">Just seated <strong>${escapeHtml(serverName)}</strong> at table <strong>${escapeHtml(tableLabel)}</strong></span>
+    <span class="ub-timer">${secsLeft}s</span>
+    <button class="ub-btn" onclick="undoLastSeat()">Cancel · undo</button>
+  `;
+}
+
+// Re-render undo bar every second to update countdown
+setInterval(() => {
+  if (state.lastSeat) {
+    const elapsed = Date.now() - state.lastSeat.ts;
+    if (elapsed > UNDO_WINDOW_MS) {
+      state.lastSeat = null;
+      renderUndoBar();
+    } else {
+      renderUndoBar();
+    }
+  }
+}, 1000);
+
+// ============================================================
+// BREAKS
+// ============================================================
+// When a server goes on break:
+//   - mark onBreak true, store breakStartedAt and tablesTotalAtBreak
+//   - their current tablesTotal is frozen (effectively — recomputeServerLoads doesn't touch tablesTotal)
+//   - auto-switch to a layout matching the new active count if one exists
+// When a server returns:
+//   - bump their tablesTotal up to the average of the others (so they re-enter at par)
+//   - auto-switch back to a layout matching the new active count
+//   - clear onBreak / breakStartedAt
+function findLayoutForStaffing(n) {
+  const keys = [...new Set(state.layouts.map(l => l.layoutKey))];
+  for (const key of keys) {
+    const sample = state.layouts.find(l => l.layoutKey === key);
+    if (sample && parseInt(sample.staffing) === n) return key;
+  }
+  return null;
+}
+
+function activeServerCount() {
+  return state.servers.filter(s => s.active && !s.onBreak).length;
+}
+
+function sendOnBreak(serverId) {
+  const s = getServerById(serverId);
+  if (!s || s.onBreak) return;
+  // Confirmation — guards against mis-taps
+  if (!confirm(`Send ${s.name} on break?\n\nThey'll leave the rotation and the floor will switch to a ${activeServerCount() - 1}-server layout (if one exists).`)) return;
+  // Determine new active count
+  const newCount = activeServerCount() - 1;
+  if (newCount < 1) { toast('Cannot send last server on break'); return; }
+  const newLayoutKey = findLayoutForStaffing(newCount);
+  if (!newLayoutKey) {
+    if (!confirm(`No layout exists for ${newCount} servers. The break will still happen but the floor won't reassign sections automatically. Continue?`)) return;
+  }
+  // Mark on break
+  s.onBreak = true;
+  s.breakStartedAt = Date.now();
+  s.tablesTotalAtBreak = s.tablesTotal || 0;
+  // Clear any pending skip on them — they're not in rotation anymore
+  s.skippedAt = '';
+  // Switch layout if a matching one exists
+  if (newLayoutKey) {
+    shiftSet('layoutKey', newLayoutKey);
+    shiftSet('staffing', newCount);
+  }
+  logEvent('break_start', { serverId: s.id, name: s.name, tablesTotalAtBreak: s.tablesTotalAtBreak });
+  toast(s.name + ' is on break');
+  pushAll();
+  closeModal('serverDetailModal');
+  state.selectedServerId = null;
+  render();
+}
+
+function returnFromBreak(serverId) {
+  const s = getServerById(serverId);
+  if (!s || !s.onBreak) return;
+  // Confirmation — guards against mis-taps
+  if (!confirm(`Bring ${s.name} back from break?\n\nThey'll rejoin the rotation and the floor will switch to a ${activeServerCount() + 1}-server layout.`)) return;
+  // Compute average tablesTotal of currently active (non-break) servers
+  const others = state.servers.filter(x => x.active && !x.onBreak && x.id !== s.id);
+  if (others.length) {
+    const avgTotal = others.reduce((sum, x) => sum + (x.tablesTotal || 0), 0) / others.length;
+    // Bump up to par if behind. Round to nearest integer.
+    const par = Math.round(avgTotal);
+    if ((s.tablesTotal || 0) < par) {
+      const offset = par - (s.tablesTotal || 0);
+      s.tablesTotal = par;
+      logEvent('break_par_adjust', { serverId: s.id, name: s.name, offset, par });
+    }
+  }
+  // Determine new active count and matching layout
+  const newCount = activeServerCount() + 1;
+  const newLayoutKey = findLayoutForStaffing(newCount);
+  if (!newLayoutKey) {
+    if (!confirm(`No layout exists for ${newCount} servers. ${s.name} will return but sections won't auto-reassign. Continue?`)) return;
+  }
+  // Clear break state
+  s.onBreak = false;
+  s.breakStartedAt = '';
+  s.tablesTotalAtBreak = '';
+  // Switch layout
+  if (newLayoutKey) {
+    shiftSet('layoutKey', newLayoutKey);
+    shiftSet('staffing', newCount);
+  }
+  logEvent('break_end', { serverId: s.id, name: s.name, tablesTotal: s.tablesTotal });
+  toast(s.name + ' is back');
+  pushAll();
+  closeModal('serverDetailModal');
+  state.selectedServerId = null;
+  render();
+}
+
+
+// ============================================================
+// COMBINE TABLES (push tables together for a single party)
+// ============================================================
+function beginAddToCombo(tableId) {
+  // The host tapped “+ Combine with another table”. Set pending mode so the
+  // next OPEN table the host taps joins this combo. Updates a floor hint pill
+  // so they know what to do.
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+  if (t.status !== 'open') {
+    toast('Only open tables can be combined');
+    return;
+  }
+  // Primary is whoever started the combo — if this table is already in a combo,
+  // keep its existing primary.
+  const primary = isInCombo(tableId) ? getComboPrimary(tableId) : t;
+  state.pendingCombine = { primaryId: primary.id };
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  // Floor hint
+  setFloorHint(`Tap an open table to add it to ${primary.label} · <a onclick="finishCombine()" style="text-decoration: underline; cursor: pointer;">Done</a> · <a onclick="cancelCombine()" style="text-decoration: underline; cursor: pointer;">Cancel</a>`);
+  renderFloor();
+}
+
+function addTableToPendingCombo(tableId) {
+  if (!state.pendingCombine) return;
+  const { primaryId } = state.pendingCombine;
+  if (tableId === primaryId) {
+    // Tapping the primary itself ends the combine flow.
+    finishCombine();
+    return;
+  }
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+  if (t.status !== 'open') {
+    toast('Only OPEN tables can be combined — “' + t.label + '” is ' + t.status);
+    return;
+  }
+  if (isInCombo(tableId) && getComboPrimary(tableId).id !== primaryId) {
+    toast('“' + t.label + '” is already in another combo');
+    return;
+  }
+  // Pause the sync pull from overwriting our local table objects while we're
+  // in the middle of combining. This is the most common cause of mid-flow
+  // failures: a pull fires between the host's two taps and replaces table
+  // objects (stripping any in-progress combine bookkeeping).
+  state.dirty = true;
+  const result = addToCombo(primaryId, tableId);
+  if (result !== true) {
+    // Show a specific reason so we can diagnose instead of guessing.
+    const map = {
+      'same-table':           'That’s the same table',
+      'no-primary':           'Lost the first table — try starting over',
+      'no-addee':             'Couldn’t find that table — try again',
+      'already-in-combo':     'Already combined with that table',
+      'addee-in-other-combo': '“' + (t.label || 'That table') + '” is in another combo',
+    };
+    let msg = map[result];
+    if (!msg && typeof result === 'string' && result.startsWith('primary-not-open:')) {
+      msg = 'First table is no longer open (' + result.split(':')[1] + ') — start over';
+    }
+    if (!msg && typeof result === 'string' && result.startsWith('addee-not-open:')) {
+      msg = '“' + (t.label || 'That table') + '” is ' + result.split(':')[1] + ', not open';
+    }
+    if (!msg) msg = 'Could not combine (' + result + ')';
+    toast(msg);
+    return;
+  }
+  push('tables');
+  const members = getComboMembers(primaryId);
+  const primary = members[0];
+  setFloorHint(`✓ ${members.length} tables combined (${comboTotalSeats(primaryId)} seats) · tap more to add · <a onclick="finishCombine()" style="text-decoration: underline; cursor: pointer;">Done</a>`);
+  toast(`Added ${t.label} to combo with ${primary.label}`);
+  renderFloor();
+}
+
+function finishCombine() {
+  if (!state.pendingCombine) return;
+  const { primaryId } = state.pendingCombine;
+  state.pendingCombine = null;
+  clearFloorHint();
+  renderFloor();
+  // Re-open actions on the primary so the host can immediately seat the combo.
+  if (primaryId) openTableActions(primaryId);
+}
+
+function cancelCombine() {
+  state.pendingCombine = null;
+  clearFloorHint();
+  renderFloor();
+}
+
+function breakComboFromUI(tableId) {
+  if (!confirm('Break this combo?\n\nEach table will go back to being a separate table.')) return;
+  breakCombo(tableId);
+  state.dirty = true;
+  push('tables');
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  toast('Combo broken');
+  renderFloor();
+}
+
+// Floor hint helpers — reuse the existing floor legend pill in the top-left overlay.
+function setFloorHint(html) {
+  const el = document.getElementById('floorLegend');
+  if (el) el.innerHTML = html;
+}
+function clearFloorHint() {
+  const el = document.getElementById('floorLegend');
+  if (el) el.textContent = 'Tap a table to act';
+}
+
+// ============================================================
+// MOVE & HANDOFF
+// ============================================================
+function beginMove(tableId) {
+  state.pendingMove = { fromTableId: tableId };
+  closeModal('tableActionsModal');
+  // Use moveModal which uses same picker
+  const grid = document.getElementById('movePicker');
+  grid.innerHTML = '';
+  state.tables.forEach(t => {
+    if (t.id === tableId) return;
+    if (t.status !== 'open') return; // can only move to open tables
+    const btn = document.createElement('button');
+    btn.className = 'picker-table';
+    const sec = getSectionForTable(t.id);
+    const srv = getServerForTable(t.id);
+    const secMarker = sec ? `<div class="sec-marker ${sectionBadgeClass(sec)}">${sec === 'floater' ? '★' : sec}</div>` : '';
+    btn.innerHTML = `
+      ${secMarker}
+      ${escapeHtml(t.label)}
+      <span class="ps">${t.seats} seats</span>
+      ${srv ? `<span class="pserver">${escapeHtml(srv.name)}</span>` : ''}
+    `;
+    btn.onclick = () => confirmMoveToTable(t.id);
+    grid.appendChild(btn);
+  });
+  if (!grid.children.length) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--ink-soft);">No open tables to move to.</div>';
+  }
+  openModal('moveModal');
+}
+
+function confirmMoveToTable(toTableId) {
+  if (!state.pendingMove) return;
+  const fromId = state.pendingMove.fromTableId;
+  const fromT = state.tables.find(t => t.id === fromId);
+  const toT = state.tables.find(t => t.id === toTableId);
+  if (!fromT || !toT || toT.status !== 'open') return;
+
+  const oldSrv = getServerForTable(fromId);
+  // Update source: open
+  const inheritedShift = fromT.seatedAtShift || '';
+  fromT.status = 'open';
+  fromT.assignedServerId = '';
+  fromT.seatedAtShift = '';
+  fromT.updated = Date.now();
+  // Update destination: seated (carry over the seating shift so a leftover stays a leftover after a move)
+  stampSeated(toT);
+  if (inheritedShift) toT.seatedAtShift = inheritedShift;
+  toT.assignedServerId = '';
+
+  // Reattach waitlist entry to new table
+  const wl = [...state.waitlist].reverse().find(w => w.status === 'seated' && w.tableId === fromId);
+  const newSrv = getServerForTable(toTableId);
+  if (wl) {
+    wl.tableId = toTableId;
+    wl.serverIdAtSeat = newSrv ? newSrv.id : '';
+  }
+
+  // ROTATION RULES (guest-initiated move):
+  // - Original server is NOT penalized: put them at front of line (treat as skipped)
+  // - New server gets the cover (their tablesOwn/covers update via recompute)
+  if (isShiftActive() && oldSrv && (!newSrv || newSrv.id !== oldSrv.id)) {
+    markSkipped(oldSrv.id);
+  }
+  if (isShiftActive() && newSrv) {
+    markSeated(newSrv.id); // they now "served" this table
+  }
+
+  state.dirty = true;
+  pushAll();
+  closeModal('moveModal');
+  state.pendingMove = null;
+  toast('Moved to ' + toT.label);
+  render();
+}
+
+function beginHandoff(tableId) {
+  state.pendingHandoff = { tableId };
+  closeModal('tableActionsModal');
+  const list = document.getElementById('handoffServerList');
+  const fromSrv = getServerForTable(tableId);
+  list.innerHTML = '';
+  state.servers.filter(s => s.active && (!fromSrv || s.id !== fromSrv.id)).forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost';
+    btn.style.justifyContent = 'flex-start';
+    btn.innerHTML = `<strong>${escapeHtml(s.name)}</strong> &nbsp; <span style="opacity: .6; font-family: 'DM Mono', monospace; font-size: 11px;">Section ${s.section} · ${s.tablesOwn || 0} own + ${s.tablesHandoff || 0} handoffs</span>`;
+    btn.onclick = () => confirmHandoff(s.id);
+    list.appendChild(btn);
+  });
+  if (!list.children.length) {
+    list.innerHTML = '<p style="color: var(--ink-soft); font-size: 13px;">No other active servers.</p>';
+  }
+  openModal('handoffModal');
+}
+
+function confirmHandoff(toServerId) {
+  if (!state.pendingHandoff) return;
+  const { tableId } = state.pendingHandoff;
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
+  // Determine credit mode: 'transfer' (default) corrects rotation; 'keep' is just coverage.
+  const modeEl = document.querySelector('input[name="handoffCredit"]:checked');
+  const mode = modeEl ? modeEl.value : 'transfer';
+  // Capture original server BEFORE any mutation.
+  const fromSrv = getServerForTable(tableId);
+  const toSrv = getServerById(toServerId);
+  // No-op if handing off to the same server.
+  if (fromSrv && fromSrv.id === toServerId) {
+    closeModal('handoffModal');
+    state.pendingHandoff = null;
+    return;
+  }
+  // If this table is part of a combo, hand off ALL members to the new server
+  // so the combo stays unified under one server. (Explicit per-member writes.)
+  const handoffMembers = getComboMembers(tableId);
+  handoffMembers.forEach(m => {
+    m.assignedServerId = toServerId;
+    m.updated = Date.now();
+  });
+  if (mode === 'transfer' && fromSrv && toSrv) {
+    // Move one seat-credit from original server to receiving server.
+    fromSrv.tablesTotal = Math.max(0, (fromSrv.tablesTotal || 0) - 1);
+    toSrv.tablesTotal = (toSrv.tablesTotal || 0) + 1;
+    toSrv.lastSeatedAt = Date.now();
+    toSrv.skippedAt = null;
+    logEvent('handoff_transfer', {
+      tableId,
+      fromServerId: fromSrv.id,
+      fromServerName: fromSrv.name,
+      toServerId,
+      toServerName: toSrv.name,
+      comboSize: handoffMembers.length,
+    });
+    toast('Credit moved to ' + toSrv.name);
+  } else {
+    // Coverage only: rotation unchanged.
+    logEvent('handoff_cover', {
+      tableId,
+      fromServerId: fromSrv ? fromSrv.id : null,
+      fromServerName: fromSrv ? fromSrv.name : null,
+      toServerId,
+      toServerName: toSrv ? toSrv.name : null,
+      comboSize: handoffMembers.length,
+    });
+    const newName = toSrv ? toSrv.name : 'server';
+    const origName = fromSrv ? fromSrv.name : 'original server';
+    toast(newName + ' is covering \u00b7 credit stays with ' + origName);
+  }
+  state.dirty = true;
+  pushAll();
+  closeModal('handoffModal');
+  state.pendingHandoff = null;
+  render();
+}
+
+// ============================================================
+// WAITLIST
+// ============================================================
+function addToWaitlist() {
+  const name = document.getElementById('wName').value.trim();
+  if (!name) { toast('Name required'); return; }
+  const partySize = parseInt(document.getElementById('wSize').value) || 2;
+  const phone = document.getElementById('wPhone').value.trim();
+  const notes = document.getElementById('wNotes').value.trim();
+  state.waitlist.push({
+    id: uid('w'), name, partySize, phone, notes,
+    addedAt: Date.now(), status: 'waiting', seatedAt: '', tableId: '',
+    serverIdAtSeat: '', walkReason: '',
+  });
+  push('waitlist');
+  ['wName','wPhone','wNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('wSize').value = 2;
+  renderWaitlist();
+}
+
+function renderWaitlist() {
+  const active = document.getElementById('waitlistActive');
+  const done = document.getElementById('waitlistDone');
+  active.innerHTML = ''; done.innerHTML = '';
+  // Trim old completed >4hrs
+  const FOUR_H = 4 * 3600 * 1000;
+  state.waitlist = state.waitlist.filter(w => {
+    if (w.status === 'waiting') return true;
+    return (Date.now() - (w.seatedAt || w.addedAt)) < FOUR_H;
+  });
+  const waiting = state.waitlist.filter(w => w.status === 'waiting').sort((a,b) => a.addedAt - b.addedAt);
+  const completed = state.waitlist.filter(w => w.status !== 'waiting').sort((a,b) => (b.seatedAt || 0) - (a.seatedAt || 0));
+  document.getElementById('cntWait').textContent = waiting.length;
+  if (!waiting.length) active.innerHTML = '<div class="empty-state">Nobody waiting.</div>';
+  else waiting.forEach(w => active.appendChild(renderWaitCard(w, true)));
+  if (completed.length) completed.slice(0, 10).forEach(w => done.appendChild(renderWaitCard(w, false)));
+  else done.innerHTML = '<div class="empty-state" style="font-size:13px;">Nothing recent.</div>';
+}
+
+function renderWaitCard(w, isActive) {
+  const card = document.createElement('div');
+  let cardClass = 'party-card';
+  if (!isActive) cardClass += ' done';
+  if (w.status === 'walked') cardClass += ' walked';
+  card.className = cardClass;
+  const waitMins = Math.floor((Date.now() - w.addedAt) / 60000);
+  const waitClass = waitMins > 30 ? 'long' : '';
+  let pill;
+  if (isActive) pill = `<span class="pill wait ${waitClass}">${waitMins}m wait</span>`;
+  else if (w.status === 'seated') pill = `<span class="pill" style="background:var(--green); color:var(--paper)">Seated</span>`;
+  else if (w.status === 'walked') pill = `<span class="pill" style="background:var(--warn); color:var(--paper)">Walked${w.walkReason ? ' · ' + escapeHtml(w.walkReason) : ''}</span>`;
+  else pill = `<span class="pill">Removed</span>`;
+  card.innerHTML = `
+    <div class="p-main">
+      <div class="p-name">${escapeHtml(w.name)}</div>
+      <div class="p-meta">
+        <span class="pill size">Party of ${w.partySize}</span>
+        ${pill}
+        ${w.phone ? `<span class="pill">${escapeHtml(w.phone)}</span>` : ''}
+        <span class="pill">Added ${fmtTime(w.addedAt)}</span>
+      </div>
+      ${w.notes ? `<div class="p-notes">${escapeHtml(w.notes)}</div>` : ''}
+    </div>
+    <div class="p-actions"></div>
+  `;
+  const actions = card.querySelector('.p-actions');
+  if (isActive) {
+    const seat = document.createElement('button');
+    seat.className = 'btn btn-primary btn-sm'; seat.textContent = 'Seat';
+    seat.onclick = () => beginSeat('wait', w.id, w.name);
+    const walk = document.createElement('button');
+    walk.className = 'btn btn-warn btn-sm'; walk.textContent = 'Walked';
+    walk.onclick = () => promptWalk(w.id);
+    actions.appendChild(seat);
+    actions.appendChild(walk);
+  } else {
+    const undo = document.createElement('button');
+    undo.className = 'btn btn-ghost btn-sm'; undo.textContent = 'Restore';
+    undo.onclick = () => {
+      w.status = 'waiting'; w.seatedAt = ''; w.tableId = ''; w.walkReason = '';
+      push('waitlist'); renderWaitlist();
+    };
+    actions.appendChild(undo);
+  }
+  return card;
+}
+
+function promptWalk(id) {
+  state.pendingWalkId = id;
+  const w = state.waitlist.find(x => x.id === id);
+  document.getElementById('walkName').textContent = w ? w.name : '';
+  openModal('walkModal');
+}
+
+function confirmWalk(reason) {
+  const w = state.waitlist.find(x => x.id === state.pendingWalkId);
+  if (!w) { closeModal('walkModal'); return; }
+  w.status = 'walked';
+  w.seatedAt = Date.now();
+  w.walkReason = reason;
+  // The server who would have gotten them was "skipped" by their walking out (not their fault)
+  if (isShiftActive()) {
+    const next = nextUpServer();
+    if (next) markSkipped(next.id);
+  }
+  push('waitlist'); push('servers');
+  logEvent('walked', { id: w.id, name: w.name, reason, partySize: w.partySize });
+  closeModal('walkModal');
+  state.pendingWalkId = null;
+  renderWaitlist();
+  renderShiftBar();
+}
+
+// ============================================================
+// RESERVATIONS
+// ============================================================
+function refreshResTablePref() {
+  const sel = document.getElementById('rTablePref');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">No table preference</option>';
+  state.tables.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `${t.label} · ${t.seats} seats`;
+    sel.appendChild(opt);
+  });
+  sel.value = cur;
+}
+
+function addReservation() {
+  const name = document.getElementById('rName').value.trim();
+  if (!name) { toast('Name required'); return; }
+  const partySize = parseInt(document.getElementById('rSize').value) || 2;
+  const phone = document.getElementById('rPhone').value.trim();
+  const date = normalizeResDate(document.getElementById('rDate').value);
+  const time = normalizeResTime(document.getElementById('rTime').value);
+  const tableId = document.getElementById('rTablePref').value || '';
+  const notes = document.getElementById('rNotes').value.trim();
+  if (!date || !time) { toast('Date & time required'); return; }
+  state.reservations.push({
+    id: uid('r'), name, partySize, phone, time, date, notes,
+    status: 'booked', tableId,
+  });
+  push('reservations');
+  ['rName','rPhone','rNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('rSize').value = 2;
+  renderReservations();
+}
+
+function renderReservations() {
+  const today = document.getElementById('resToday');
+  const upcoming = document.getElementById('resUpcoming');
+  today.innerHTML = ''; upcoming.innerHTML = '';
+  const ts = todayStr();
+  document.getElementById('resTodayDate').textContent = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  const todayList = state.reservations.filter(r => r.date === ts).sort((a,b) => (a.time || '').localeCompare(b.time || ''));
+  const upcomingList = state.reservations.filter(r => r.date > ts).sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time));
+  document.getElementById('cntRes').textContent = todayList.filter(r => r.status === 'booked').length;
+  if (!todayList.length) today.innerHTML = '<div class="empty-state">No reservations today.</div>';
+  else todayList.forEach(r => today.appendChild(renderResCard(r, true)));
+  if (!upcomingList.length) upcoming.innerHTML = '<div class="empty-state" style="font-size:13px;">Nothing on the books.</div>';
+  else upcomingList.slice(0, 30).forEach(r => upcoming.appendChild(renderResCard(r, false)));
+}
+
+function renderResCard(r, isToday) {
+  const card = document.createElement('div');
+  card.className = 'party-card' + (r.status !== 'booked' ? ' done' : '');
+  const tableLabel = r.tableId ? (state.tables.find(t => t.id === r.tableId) || {}).label : '';
+  const statusPill = r.status === 'arrived'
+    ? '<span class="pill" style="background: var(--green); color: var(--paper)">Arrived</span>'
+    : r.status === 'no-show'
+      ? '<span class="pill" style="background: var(--accent-deep); color: var(--paper)">No-show</span>'
+      : r.status === 'cancelled' ? '<span class="pill">Cancelled</span>' : '';
+  card.innerHTML = `
+    <div class="p-main">
+      <div class="p-name">${escapeHtml(r.name)} <span style="font-family: 'DM Mono', monospace; font-size: 14px; color: var(--accent); font-weight: 500;">· ${fmtResTime(r.time)}${!isToday ? ' · ' + fmtResDate(r.date) : ''}</span></div>
+      <div class="p-meta">
+        <span class="pill size">Party of ${r.partySize}</span>
+        ${tableLabel ? `<span class="pill">Table ${escapeHtml(tableLabel)}</span>` : '<span class="pill">Any table</span>'}
+        ${r.phone ? `<span class="pill">${escapeHtml(r.phone)}</span>` : ''}
+        ${statusPill}
+      </div>
+      ${r.notes ? `<div class="p-notes">${escapeHtml(r.notes)}</div>` : ''}
+    </div>
+    <div class="p-actions"></div>
+  `;
+  const actions = card.querySelector('.p-actions');
+  if (r.status === 'booked' && isToday) {
+    const seat = document.createElement('button');
+    seat.className = 'btn btn-primary btn-sm'; seat.textContent = 'Seat';
+    seat.onclick = () => beginSeat('res', r.id, r.name);
+    actions.appendChild(seat);
+    const noshow = document.createElement('button');
+    noshow.className = 'btn btn-ghost btn-sm'; noshow.textContent = 'No-show';
+    noshow.onclick = () => { r.status = 'no-show'; push('reservations'); renderReservations(); };
+    actions.appendChild(noshow);
+  }
+  if (r.status === 'booked' && !isToday) {
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-ghost btn-sm'; cancel.textContent = 'Cancel';
+    cancel.onclick = () => {
+      if (!confirm('Cancel reservation?')) return;
+      r.status = 'cancelled'; push('reservations'); renderReservations();
+    };
+    actions.appendChild(cancel);
+  }
+  return card;
+}
+
+// ============================================================
+// SHIFT VIEW
+// ============================================================
+function renderShiftView() {
+  // Reflect current state on the toggle
+  const toggle = document.getElementById('openFloorToggle');
+  if (toggle) toggle.checked = isOpenFloor();
+
+  // Hide layout section when open floor is on
+  const layoutSection = document.getElementById('layoutSection');
+  if (layoutSection) {
+    layoutSection.style.display = isOpenFloor() ? 'none' : '';
+  }
+
+  const picker = document.getElementById('layoutPicker');
+  picker.innerHTML = '';
+  if (!isOpenFloor()) {
+    if (!state.layouts.length) {
+      picker.innerHTML = '<p style="grid-column: 1/-1; color: var(--ink-soft); font-size: 13px;">No layouts yet. <a onclick="goToView(\'layouts\')" style="cursor: pointer; text-decoration: underline;">Create one →</a></p>';
+    } else {
+      const keys = [...new Set(state.layouts.map(l => l.layoutKey))];
+      keys.forEach(key => {
+        const sample = state.layouts.find(l => l.layoutKey === key);
+        const card = document.createElement('div');
+        const isCurrent = currentLayoutKey() === key;
+        card.className = 'layout-card' + (isCurrent ? ' selected' : '');
+        card.innerHTML = `
+          <div class="lc-name">${escapeHtml(sample.name || key)}</div>
+          <div class="lc-meta">${sample.staffing} servers</div>
+        `;
+        card.onclick = () => selectLayout(key);
+        picker.appendChild(card);
+      });
+    }
+  }
+
+  const roster = document.getElementById('rosterSection');
+  // Show roster if a layout is picked OR open floor mode is on
+  if (currentLayoutKey() || isOpenFloor()) {
+    roster.style.display = 'block';
+    renderRoster();
+  } else {
+    roster.style.display = 'none';
+  }
+
+  // Stats
+  const statsSec = document.getElementById('shiftStatsSection');
+  if (isShiftActive()) {
+    statsSec.style.display = 'block';
+    renderShiftStats();
+  } else {
+    statsSec.style.display = 'none';
+  }
+
+  document.getElementById('startShiftBtn').textContent = isShiftActive() ? 'Update servers' : 'Start shift';
+  document.getElementById('endShiftBtn').style.display = isShiftActive() ? '' : 'none';
+}
+
+function selectLayout(layoutKey) {
+  shiftSet('layoutKey', layoutKey);
+  const sample = state.layouts.find(l => l.layoutKey === layoutKey);
+  const targetStaffing = sample ? parseInt(sample.staffing) : 0;
+  shiftSet('staffing', targetStaffing);
+  // Clear inactive servers when not in active shift
+  if (!isShiftActive()) {
+    state.servers = state.servers.filter(s => s.active);
+  }
+  // Trim excess (but only if not in active shift — don't yank servers mid-service)
+  if (!isShiftActive()) {
+    const active = state.servers.filter(s => s.active);
+    if (active.length > targetStaffing) {
+      // Mark the excess inactive (don't delete — keep history if any)
+      active.slice(targetStaffing).forEach(s => s.active = false);
+    }
+  }
+  // Pad roster to staffing count
+  while (state.servers.filter(s => s.active).length < targetStaffing) {
+    const sec = state.servers.filter(s => s.active).length + 1;
+    state.servers.push({
+      id: uid('srv'), name: '', section: String(sec),
+      active: true, tablesOwn: 0, tablesHandoff: 0, covers: 0, skips: 0, tablesTotal: 0, onBreak: false, breakStartedAt: '', tablesTotalAtBreak: '',
+      lastSeatedAt: '', skippedAt: '', startedAt: '',
+    });
+  }
+  push('shift'); push('servers');
+  renderShiftView();
+}
+
+function renderRoster() {
+  const list = document.getElementById('serverRoster');
+  const staffing = parseInt(shiftGet('staffing', 0)) || 0;
+  const openFloor = isOpenFloor();
+  const active = state.servers.filter(s => s.active);
+  list.innerHTML = '';
+  active.forEach((s, idx) => {
+    const row = document.createElement('div');
+    row.className = 'roster-row';
+    const sectionField = openFloor
+      ? `<div style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-soft); text-align: center; padding: 8px; letter-spacing: 0.05em;">Open floor</div>`
+      : `<select data-id="${s.id}" data-field="section">
+          ${[1,2,3,4].slice(0, Math.max(staffing, 4)).map(i => `<option value="${i}" ${String(s.section) === String(i) ? 'selected' : ''}>Section ${i}</option>`).join('')}
+        </select>`;
+    row.innerHTML = `
+      <input value="${escapeHtml(s.name || '')}" placeholder="Server name" data-id="${s.id}" data-field="name">
+      ${sectionField}
+      <button class="x" data-id="${s.id}" title="Remove">×</button>
+    `;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('input, select').forEach(el => {
+    el.addEventListener('change', () => {
+      const s = state.servers.find(x => x.id === el.dataset.id);
+      if (!s) return;
+      if (el.dataset.field === 'name') s.name = el.value.trim();
+      if (el.dataset.field === 'section') s.section = el.value;
+      push('servers');
+    });
+  });
+  list.querySelectorAll('.x').forEach(b => {
+    b.onclick = () => {
+      const s = state.servers.find(x => x.id === b.dataset.id);
+      if (!s) return;
+      if (!confirm('Remove ' + (s.name || 'server') + ' from roster?')) return;
+      s.active = false;
+      push('servers');
+      renderRoster();
+    };
+  });
+}
+
+document.getElementById('openFloorToggle').addEventListener('change', (e) => {
+  const turningOn = e.target.checked;
+  // If turning on while a layout is selected, clear it (the host has chosen open floor instead)
+  if (turningOn) {
+    shiftSet('openFloor', true);
+    // Clear layout selection since open floor doesn't use one
+    shiftSet('layoutKey', '');
+    shiftSet('staffing', 0);
+    // Make sure all rostered servers have unique distinct section numbers — sections
+    // don't matter for rotation in open floor, but the roster UI still expects each
+    // server to have a value. Default to position-based (1,2,3...).
+    const activeServers = state.servers.filter(s => s.active);
+    activeServers.forEach((s, idx) => {
+      if (!s.section) s.section = String(idx + 1);
+    });
+  } else {
+    shiftSet('openFloor', false);
+  }
+  push('shift'); push('servers');
+  renderShiftView();
+  renderShiftBar();
+  renderFloor();
+});
+
+document.getElementById('addServerBtn').addEventListener('click', () => {
+  const used = state.servers.filter(s => s.active).map(s => parseInt(s.section));
+  let sec = 1;
+  while (used.includes(sec)) sec++;
+  state.servers.push({
+    id: uid('srv'), name: '', section: sec, active: true,
+    tablesOwn: 0, tablesHandoff: 0, covers: 0, skips: 0, tablesTotal: 0, onBreak: false, breakStartedAt: '', tablesTotalAtBreak: '',
+    lastSeatedAt: '', skippedAt: '', startedAt: '',
+  });
+  push('servers');
+  renderRoster();
+});
+
+document.getElementById('startShiftBtn').addEventListener('click', () => {
+  // Validate
+  const active = state.servers.filter(s => s.active);
+  if (!active.length) { toast('Add at least one server'); return; }
+  const noName = active.find(s => !s.name);
+  if (noName) { toast('Give every server a name'); return; }
+  // Section uniqueness only matters when not in open floor mode
+  if (!isOpenFloor()) {
+    const sections = active.map(s => parseInt(s.section));
+    if (new Set(sections).size !== sections.length) { toast('Each server needs a different section'); return; }
+  }
+  // If starting fresh: zero out stats
+  if (!isShiftActive()) {
+    const now = Date.now();
+    const previousStart = shiftGet('startedAt', '') || now - 1;
+    // Stamp any currently seated tables as belonging to the PREVIOUS shift (so they show as leftover).
+    // Tables without a seatedAtShift get the previous shift's start time as a fallback.
+    state.tables.forEach(t => {
+      if (t.status === 'seated' && !t.seatedAtShift) {
+        t.seatedAtShift = previousStart;
+      }
+    });
+    active.forEach(s => {
+      s.tablesOwn = 0; s.tablesHandoff = 0; s.covers = 0; s.skips = 0;
+      s.tablesTotal = 0;
+      s.lastSeatedAt = ''; s.skippedAt = ''; s.startedAt = now;
+      s.onBreak = false; s.breakStartedAt = ''; s.tablesTotalAtBreak = '';
+    });
+    shiftSet('startedAt', now);
+    push('tables');
+  }
+  shiftSet('active', true);
+  push('servers'); push('shift');
+  toast(isShiftActive() ? 'Roster updated' : 'Shift started');
+  renderShiftView();
+  renderShiftBar();
+  renderFloor();
+});
+
+document.getElementById('endShiftBtn').addEventListener('click', () => {
+  if (!confirm('End shift? Server stats stay in the Sheet for tonight.')) return;
+  shiftSet('active', false);
+  shiftSet('endedAt', Date.now());
+  // Mark all assigned tables as open (party left assumed at close)
+  // ...actually leave that to the host. Just end.
+  push('shift');
+  toast('Shift ended');
+  renderShiftView();
+  renderShiftBar();
+  renderFloor();
+});
+
+function renderShiftStats() {
+  const wrap = document.getElementById('shiftStats');
+  const active = state.servers.filter(s => s.active);
+  recomputeServerLoads();
+  let totalCovers = active.reduce((s, x) => s + (x.covers || 0), 0);
+  let totalTables = active.reduce((s, x) => s + (x.tablesOwn || 0) + (x.tablesHandoff || 0), 0);
+  let totalSkips = active.reduce((s, x) => s + (x.skips || 0), 0);
+  const walks = state.waitlist.filter(w => w.status === 'walked').length;
+  const startedAt = shiftGet('startedAt', null);
+  wrap.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
+      <div class="stat-block"><div class="v">${totalCovers}</div><div class="l">Total covers</div></div>
+      <div class="stat-block"><div class="v">${totalTables}</div><div class="l">Active tables</div></div>
+      <div class="stat-block ${totalSkips ? 'warn' : ''}"><div class="v">${totalSkips}</div><div class="l">Total skips</div></div>
+      <div class="stat-block ${walks ? 'warn' : ''}"><div class="v">${walks}</div><div class="l">Walks today</div></div>
+    </div>
+    ${startedAt ? `<p style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-soft); letter-spacing: 0.05em;">Shift started at ${fmtTime(startedAt)}</p>` : ''}
+  `;
+}
+
+// ============================================================
+// LAYOUTS VIEW
+// ============================================================
+function renderLayoutsView() {
+  const list = document.getElementById('layoutListEditor');
+  const keys = [...new Set(state.layouts.map(l => l.layoutKey))];
+  list.innerHTML = '';
+  if (!keys.length) {
+    list.innerHTML = '<p style="color: var(--ink-soft); font-size: 13px;">No layouts yet. Create one to get started.</p>';
+    return;
+  }
+  keys.forEach(key => {
+    const sample = state.layouts.find(l => l.layoutKey === key);
+    const card = document.createElement('div');
+    card.className = 'layout-card';
+    card.style.cursor = 'default';
+    const assignedCount = state.layouts.filter(l => l.layoutKey === key && l.section).length;
+    card.innerHTML = `
+      <div class="lc-name">${escapeHtml(sample.name || key)}</div>
+      <div class="lc-meta">${sample.staffing} servers · ${assignedCount}/${state.tables.length} tables assigned</div>
+      <div class="lc-actions" data-mgr-only style="display: ${isManagerUnlocked() ? '' : 'none'}">
+        <button class="btn btn-sm btn-mono" data-edit="${key}">Edit</button>
+        <button class="btn btn-sm btn-mono btn-warn" data-del="${key}">Delete</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+  list.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => startLayoutEdit(b.dataset.edit));
+  list.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteLayout(b.dataset.del));
+}
+
+document.getElementById('newLayoutBtn').addEventListener('click', () => {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); openManagerModal(); return; }
+  bumpManagerActivity();
+  document.getElementById('newLayoutName').value = '';
+  document.getElementById('newLayoutStaffing').value = '4';
+  openModal('newLayoutModal');
+});
+
+function confirmNewLayout() {
+  const name = document.getElementById('newLayoutName').value.trim();
+  const staffing = parseInt(document.getElementById('newLayoutStaffing').value);
+  if (!name) { toast('Name required'); return; }
+  const key = uid('lay');
+  // Initialize: every existing table gets section '' (unassigned)
+  state.tables.forEach(t => {
+    state.layouts.push({ layoutKey: key, name, staffing, tableId: t.id, section: '' });
+  });
+  push('layouts');
+  closeModal('newLayoutModal');
+  startLayoutEdit(key);
+}
+
+function startLayoutEdit(layoutKey) {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); return; }
+  bumpManagerActivity();
+  state.editingLayoutKey = layoutKey;
+  const sample = state.layouts.find(l => l.layoutKey === layoutKey);
+  if (!sample) return;
+  document.getElementById('editingLayoutName').textContent = sample.name + ' · ' + sample.staffing + ' servers';
+  document.getElementById('layoutEditor').style.display = 'block';
+  renderLayoutFloor();
+  document.getElementById('layoutEditor').scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderLayoutFloor() {
+  const inner = document.getElementById('layoutFloorInner');
+  const container = document.getElementById('layoutFloor');
+  const layoutKey = state.editingLayoutKey;
+  const sample = state.layouts.find(l => l.layoutKey === layoutKey);
+  if (!sample) return;
+  const staffing = sample.staffing;
+  inner.style.width = FLOOR_W + 'px';
+  inner.style.height = FLOOR_H + 'px';
+  inner.innerHTML = '';
+  // Auto-fit the layout editor canvas inside its 500px-tall container
+  if (container) {
+    const cw = container.clientWidth || 600;
+    const ch = container.clientHeight || 500;
+    const scale = Math.min((cw * 0.96) / FLOOR_W, (ch * 0.96) / FLOOR_H);
+    const tx = (cw - FLOOR_W * scale) / 2;
+    const ty = (ch - FLOOR_H * scale) / 2;
+    inner.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  }
+  state.tables.forEach(t => {
+    const row = state.layouts.find(l => l.layoutKey === layoutKey && l.tableId === t.id);
+    const section = row ? String(row.section || '') : '';
+    const el = document.createElement('div');
+    el.className = `table-el shape-${t.shape || 'square'} status-open`;
+    el.style.left = (t.x || 50) + 'px'; el.style.top = (t.y || 50) + 'px';
+    el.style.width = (t.width || 80) + 'px'; el.style.height = (t.height || 80) + 'px';
+    let bg = 'var(--paper)';
+    if (section === '1') bg = 'rgba(var(--sec-1), 0.6)';
+    if (section === '2') bg = 'rgba(var(--sec-2), 0.6)';
+    if (section === '3') bg = 'rgba(var(--sec-3), 0.6)';
+    if (section === '4') bg = 'rgba(var(--sec-4), 0.6)';
+    if (section === 'floater') bg = 'rgba(var(--sec-floater), 0.6)';
+    el.style.background = bg;
+    if (section && section !== '') el.style.color = 'var(--paper)';
+    el.innerHTML = `
+      <div class="t-label">${escapeHtml(t.label)}</div>
+      <div class="t-seats">${section ? (section === 'floater' ? '★ Floater' : 'Sec ' + section) : 'Tap to assign'}</div>
+    `;
+    el.style.cursor = 'pointer';
+    el.onclick = () => cycleSectionForTable(t.id, staffing);
+    inner.appendChild(el);
+  });
+}
+
+function cycleSectionForTable(tableId, staffing) {
+  const layoutKey = state.editingLayoutKey;
+  let row = state.layouts.find(l => l.layoutKey === layoutKey && l.tableId === tableId);
+  if (!row) {
+    row = { layoutKey, name: state.layouts.find(l => l.layoutKey === layoutKey).name, staffing, tableId, section: '' };
+    state.layouts.push(row);
+  }
+  // Cycle: '' -> 1 -> 2 -> ... -> staffing -> floater -> ''
+  const order = [''];
+  for (let i = 1; i <= staffing; i++) order.push(String(i));
+  order.push('floater');
+  const idx = order.indexOf(String(row.section || ''));
+  row.section = order[(idx + 1) % order.length];
+  push('layouts');
+  renderLayoutFloor();
+}
+
+function finishLayoutEdit() {
+  state.editingLayoutKey = null;
+  document.getElementById('layoutEditor').style.display = 'none';
+  renderLayoutsView();
+}
+
+function deleteLayout(layoutKey) {
+  if (!isManagerUnlocked()) { toast('Manager mode required'); return; }
+  bumpManagerActivity();
+  if (!confirm('Delete this layout? It can\'t be undone.')) return;
+  state.layouts = state.layouts.filter(l => l.layoutKey !== layoutKey);
+  if (currentLayoutKey() === layoutKey) {
+    shiftSet('layoutKey', '');
+    shiftSet('active', false);
+    push('shift');
+  }
+  push('layouts');
+  renderLayoutsView();
+}
+
+document.getElementById('deleteLayoutBtn').addEventListener('click', () => {
+  if (state.editingLayoutKey) deleteLayout(state.editingLayoutKey);
+  finishLayoutEdit();
+});
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function openSettings() {
+  // Settings is manager-only — it contains the backend URL, sync interval, and
+  // other risky config. The first-time-setup path (no API URL yet) is allowed
+  // through so a brand-new install can wire itself up.
+  const firstTimeSetup = !state.apiUrl;
+  if (!firstTimeSetup && !isManagerUnlocked()) {
+    toast('Manager mode required');
+    openManagerModal();
+    return;
+  }
+  bumpManagerActivity();
+  document.getElementById('apiUrlInput').value = state.apiUrl || '';
+  document.getElementById('syncSecsInput').value = state.syncSecs || 5;
+  openModal('settingsModal');
+}
+function saveSettings() {
+  state.apiUrl = document.getElementById('apiUrlInput').value.trim();
+  state.syncSecs = Math.max(2, parseInt(document.getElementById('syncSecsInput').value) || 5);
+  saveLocal();
+  closeModal('settingsModal');
+  toast('Settings saved');
+  pull();
+  restartSyncLoop();
+}
+
+// ============================================================
+// MAIN RENDER
+// ============================================================
+function render() {
+  renderShiftBar();
+  renderFloor();
+  renderWaitlist();
+  renderReservations();
+  refreshResTablePref();
+  if (state.currentView === 'shift') renderShiftView();
+  if (state.currentView === 'layouts') renderLayoutsView();
+  document.getElementById('cntServers').textContent = state.servers.filter(s => s.active).length || '';
+  updateManagerUI();
+}
+
+// ============================================================
+// SYNC LOOP
+// ============================================================
+let syncInterval;
+function restartSyncLoop() {
+  clearInterval(syncInterval);
+  if (state.apiUrl) {
+    syncInterval = setInterval(() => {
+      if (!state.editing && !state.dirty && !state.editingLayoutKey) pull();
+    }, (state.syncSecs || 5) * 1000);
+  }
+}
+// Re-fit the floor when the window resizes (rotate phone, resize browser, etc.)
+// Only re-fits when the user hasn't manually zoomed/panned away from auto-fit.
+(function setupFloorResizeFit() {
+  let resizeT;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => {
+      if (state.currentView === 'floor' && !floorView.isCustom) floorZoomReset();
+      // Also re-fit the layouts editor if it's open
+      if (state.currentView === 'layouts' && state.editingLayoutKey) {
+        if (typeof renderLayoutsView === 'function') renderLayoutsView();
+      }
+    }, 120);
+  });
+  // Some mobile browsers fire orientationchange before the new size is in effect
+  window.addEventListener('orientationchange', () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => {
+      if (state.currentView === 'floor' && !floorView.isCustom) floorZoomReset();
+    }, 300);
+  });
+})();
+
+setInterval(() => {
+  if (state.currentView === 'waitlist') renderWaitlist();
+  if (state.currentView === 'floor') renderShiftBar();
+  // Auto-lock check
+  if (state.managerUnlocked && Date.now() - state.managerUnlockedAt > MGR_AUTO_LOCK_MS) {
+    lockManager();
+  }
+}, 30000);
+
+// ============================================================
+// TABS
+// ============================================================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => goToView(tab.dataset.view));
+});
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  loadLocal();
+  document.getElementById('rDate').value = todayStr();
+  if (!state.apiUrl) {
+    setSyncStatus('Local only');
+    setTimeout(openSettings, 500);
+  } else {
+    pull();
+  }
+  restartSyncLoop();
+  render();
+}
+init();
+</script>
+</body>
+</html>
