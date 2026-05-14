@@ -19,7 +19,7 @@ const TABLE_HEADERS    = ['id','label','seats','shape','x','y','width','height',
 const WAITLIST_HEADERS = ['id','name','partySize','phone','notes','addedAt','status','seatedAt','tableId','serverIdAtSeat','walkReason'];
 const RES_HEADERS      = ['id','name','partySize','phone','time','date','notes','status','tableId'];
 const LAYOUT_HEADERS   = ['layoutKey','name','staffing','tableId','section'];
-const SERVER_HEADERS   = ['id','name','section','active','tablesOwn','tablesHandoff','covers','skips','lastSeatedAt','skippedAt','startedAt','tablesTotal'];
+const SERVER_HEADERS   = ['id','name','section','active','tablesOwn','tablesHandoff','covers','skips','lastSeatedAt','skippedAt','startedAt','tablesTotal','lastTableId'];
 const SHIFT_HEADERS    = ['key','value'];
 const LOG_HEADERS      = ['ts','event','data'];
 
