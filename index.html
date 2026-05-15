@@ -374,6 +374,20 @@
   .table-el.status-reserved { background: #1a1410; color: var(--paper); }
   .table-el.dim { opacity: .35; }
   .table-el.highlight { box-shadow: 0 0 0 4px var(--gold), var(--shadow); }
+  /* Per-table sync indicator: blue pulsing halo while a save is in flight, */
+  /* red halo if the save failed. Gives waiters instant feedback that their */
+  /* tap registered — kills the double-seat problem. */
+  .table-el.syncing {
+    box-shadow: 0 0 0 3px rgba(56, 132, 245, 0.85), 0 0 0 7px rgba(56, 132, 245, 0.22), var(--shadow);
+    animation: tableSyncPulse 1s ease-in-out infinite;
+  }
+  .table-el.sync-error {
+    box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.9), 0 0 0 7px rgba(185, 28, 28, 0.22), var(--shadow);
+  }
+  @keyframes tableSyncPulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.7; }
+  }
 
   .table-el .t-label { font-family: 'Fraunces', serif; font-weight: 700; font-size: 18px; line-height: 1; }
 
@@ -712,12 +726,6 @@
     .floor-toolbar { padding: 8px 14px; }
     .list-wrap, .shift-view { padding: 12px 14px; }
     .server-detail-stats { grid-template-columns: repeat(2, 1fr); }
-  }
-
-  .table-el.is-last-seat {
-    outline: 3px solid #FACC15;
-    outline-offset: -1px;
-    box-shadow: var(--shadow), 0 0 8px rgba(250,204,21,0.55);
   }
 </style>
 </head>
@@ -1121,11 +1129,6 @@ const state = {
   managerUnlockedAt: 0,
   // Undo last seat (in-memory only, 60-second window)
   lastSeat: null, // { tableId, serverId, waitlistId, resId, prevTablesTotal, prevLastSeatedAt, ts }
-  // Generic last-action undo for non-seat actions (mark open, move, hand off,
-  // walked, mark reserved). Snapshot-based: captures tables/waitlist/
-  // reservations/servers BEFORE the mutation, restores all four on undo.
-  // Mutually exclusive with lastSeat - whichever is most recent wins.
-  lastAction: null, // { type, displayText, snapshot, ts }
 };
 
 // ============================================================
@@ -1359,6 +1362,9 @@ async function pull() {
   // tables payload would replace the table objects between taps and wipe
   // the in-progress combine bookkeeping.
   if (state.pendingCombine || state.pendingMove || state.pendingSeat || state.pendingHandoff) return;
+  // Don't pull while the user is actively interacting — gives any tap-driven
+  // mutation a 2s window to settle before the next pull can reshape state.
+  if (state.lastInteractionAt && Date.now() - state.lastInteractionAt < 2000) return;
   try {
     const data = await api('getAll');
     if (!state.dirty) {
@@ -1380,14 +1386,7 @@ async function pull() {
       state.waitlist     = data.waitlist     || [];
       state.reservations = data.reservations || [];
       state.layouts      = data.layouts      || [];
-      (() => {
-        const prevLastTable = new Map((state.servers || []).map(s => [s.id, s.lastTableId || '']));
-        state.servers = (data.servers || []).map(s => {
-          const prev = prevLastTable.get(s.id);
-          if (prev && !s.lastTableId) s.lastTableId = prev;
-          return s;
-        });
-      })();
+      state.servers      = data.servers      || [];
       state.shift        = data.shift        || [];
       // Clean up any reservations whose date/time were stored as ISO timestamps
       // or other junk. Push back to the sheet so the fix sticks.
@@ -1404,7 +1403,20 @@ async function pull() {
         push('tables');
       }
     }
-    render();
+    // Only repaint if something on the floor actually changed — this kills the
+    // every-5-seconds flicker that came from re-rendering the floor on every pull.
+    const floorHash = JSON.stringify(state.tables.map(t => [
+      t.id, t.partyId, t.serverId, t.assignedServerId, t.status,
+      t.combinedWith, t.combinePrimary, t.seats, t.label, t.x, t.y, t.width, t.height
+    ]));
+    const waitHash = JSON.stringify(state.waitlist.map(w => [w.id, w.status, w.name, w.partySize, w.tableId]));
+    const resHash  = JSON.stringify(state.reservations.map(r => [r.id, r.status, r.name, r.partySize, r.tableId, r.time, r.date]));
+    const srvHash  = JSON.stringify(state.servers.map(s => [s.id, s.active, s.section, s.skippedAt, s.tablesTotal]));
+    const combined = floorHash + '|' + waitHash + '|' + resHash + '|' + srvHash;
+    if (combined !== state._lastSyncHash) {
+      state._lastSyncHash = combined;
+      render();
+    }
   } catch (err) { setSyncStatus('error', err.message); }
 }
 
@@ -1430,6 +1442,42 @@ async function pushAll() {
     push('layouts'), push('servers'), push('shift'),
   ]);
   state.dirty = false;
+}
+
+// ---- Per-table sync indicator helpers --------------------------------------
+// These wrap push()/pushAll() so the affected tables show a pulsing halo while
+// the save is in flight and a brief tap-lock so a second tap doesn't double-fire
+// before the first save lands. Use these for any interactive seat/move/handoff/
+// combine action — not for background syncs.
+function markTablesSyncing(tableIds) {
+  const ids = Array.isArray(tableIds) ? tableIds.slice() : [tableIds];
+  const lockUntil = Date.now() + 600;
+  ids.forEach(id => {
+    const t = state.tables.find(x => x.id === id);
+    if (t) { t._pendingSync = true; t._syncError = false; t._lockedUntil = lockUntil; }
+  });
+  return ids;
+}
+function clearTablesSyncing(ids, isError) {
+  ids.forEach(id => {
+    const t = state.tables.find(x => x.id === id);
+    if (t) {
+      t._pendingSync = false;
+      if (isError) t._syncError = true;
+    }
+  });
+  // Repaint so the halo disappears (or turns red on error) without waiting on pull().
+  if (typeof renderFloor === 'function') renderFloor();
+}
+function pushTablesWithSync(tableIds) {
+  const ids = markTablesSyncing(tableIds);
+  return push('tables').then(() => clearTablesSyncing(ids, false))
+                       .catch(() => clearTablesSyncing(ids, true));
+}
+function pushAllWithSync(tableIds) {
+  const ids = markTablesSyncing(tableIds);
+  return pushAll().then(() => clearTablesSyncing(ids, false))
+                  .catch(() => clearTablesSyncing(ids, true));
 }
 
 async function logEvent(event, data) {
@@ -2222,7 +2270,9 @@ function renderFloor() {
 
     if (state.editing) classes.push('editing');
     if (isLeftoverTable(t)) classes.push('leftover');
-    if (isShiftActive() && state.servers.some(sv => sv.lastTableId === t.id)) classes.push('is-last-seat');
+    // Per-table sync indicator — see pushTablesWithSync / pushAllWithSync.
+    if (t._pendingSync) classes.push('syncing');
+    if (t._syncError)   classes.push('sync-error');
     // Combo indicator: tables in a combo group get a colored halo + chain badge.
     if (isInCombo(t.id)) {
       classes.push('in-combo');
@@ -2364,6 +2414,13 @@ function renderComboConnectors(inner) {
 }
 
 function onTableClick(tableId) {
+  // Per-table tap lock: ignore a second tap on a table whose previous action
+  // is still in flight. Prevents the double-seat that comes from a waiter
+  // tapping again because they couldn't tell the first tap registered.
+  const _tap = state.tables.find(x => x.id === tableId);
+  if (_tap && _tap._lockedUntil && Date.now() < _tap._lockedUntil) return;
+  // Stamp interaction time so pull() won't fire over the top of us for 2s.
+  state.lastInteractionAt = Date.now();
   // If we're picking a table for moving / handing off / seating from list, route there
   if (state.pendingMove) { confirmMoveToTable(tableId); return; }
   if (state.pendingSeat) { confirmSeatAtTable(tableId); return; }
@@ -2573,16 +2630,6 @@ function setStatus(tableId, status) {
   const t = state.tables.find(x => x.id === tableId);
   if (!t) return;
   const wasSeated = t.status === 'seated';
-  // Record undo snapshot BEFORE any mutation. We only snapshot meaningful
-  // transitions so that no-ops don't clobber a pending undo.
-  const prevStatus = t.status;
-  if (prevStatus === 'seated' && status === 'open') {
-    recordAction('open', `Marked table ${t.label} open`);
-  } else if (prevStatus === 'open' && status === 'reserved') {
-    recordAction('reserve', `Marked table ${t.label} reserved`);
-  } else if (prevStatus === 'reserved' && status === 'open') {
-    recordAction('cancel-reserve', `Canceled reservation on table ${t.label}`);
-  }
   // If this table is part of a combo, the status change applies to ALL members
   // (party leaves together, gets re-marked together). When clearing back to open,
   // we also auto-break the combo so the floor is clean for the next seating.
@@ -2597,11 +2644,12 @@ function setStatus(tableId, status) {
       m.seatedAtShift = '';
     }
   });
+  const affectedIds = members.map(m => m.id);
   if (status === 'open' && members.length > 1) {
     breakCombo(tableId); // auto-break: party left
   }
   state.dirty = true;
-  push('tables');
+  pushTablesWithSync(affectedIds);
   closeModal('tableActionsModal');
   state.pendingTable = null;
   renderFloor();
@@ -2661,14 +2709,15 @@ function seatWalkInAtTable(tableId) {
   // PRIMARY table's section's server (one combo = one rotation tick).
   if (isShiftActive()) {
     if (resolvedServer) {
-      markSeated(resolvedServer.id, primary.id);
+      markSeated(resolvedServer.id);
       recordLastSeat({ tableId: primary.id, serverId: resolvedServer.id });
     }
     // (no else — non-floater with no server is a configuration gap, not a skip event)
   }
 
   state.dirty = true;
-  push('tables'); push('servers');
+  pushTablesWithSync(members.map(m => m.id));
+  push('servers');
   closeModal('tableActionsModal');
   state.pendingTable = null;
   toast(members.length > 1
@@ -2812,7 +2861,7 @@ function applyFloaterSeat(tableId, serverId, forWalkIn) {
     }
   }
   // 2) The chosen server gets credit: clears their own skip, updates lastSeatedAt
-  markSeated(serverId, tableId);
+  markSeated(serverId);
   // 3) Record for undo
   recordLastSeat({ tableId, serverId, waitlistId: undoWaitlistId, resId: undoResId, skippedServerIds });
 
@@ -2953,7 +3002,7 @@ function confirmSeatAtTable(tableId) {
           }
         }
       }
-      markSeated(targetSrv.id, primaryId);
+      markSeated(targetSrv.id);
       targetSrv.covers = (targetSrv.covers || 0) + partySize;
       // Record for undo
       recordLastSeat({
@@ -2968,7 +3017,7 @@ function confirmSeatAtTable(tableId) {
   }
 
   state.dirty = true;
-  pushAll();
+  pushAllWithSync(comboMembers.map(m => m.id));
   closeModal('seatModal');
   state.pendingSeat = null;
   toast('Seated at ' + table.label);
@@ -2978,11 +3027,10 @@ function confirmSeatAtTable(tableId) {
 
 // Mark a server as having gotten a seat (clears any skip state on them)
 // Also increments the running total of tables they've handled this shift.
-function markSeated(serverId, tableId) {
+function markSeated(serverId) {
   const s = getServerById(serverId);
   if (!s) return;
   s.lastSeatedAt = Date.now();
-  s.lastTableId = tableId || s.lastTableId || '';
   s.skippedAt = ''; // clear skip
   s.tablesTotal = (s.tablesTotal || 0) + 1;
 }
@@ -3006,9 +3054,6 @@ const UNDO_WINDOW_MS = 60 * 1000; // 60 seconds
 
 // Snapshot state right before applying a seat, so we can undo if needed.
 function recordLastSeat({ tableId, serverId, waitlistId, resId, skippedServerIds }) {
-  // Mutual exclusion: clear any pending generic-action undo so the bar shows
-  // the most recent thing.
-  state.lastAction = null;
   const srv = getServerById(serverId);
   state.lastSeat = {
     tableId,
@@ -3018,7 +3063,6 @@ function recordLastSeat({ tableId, serverId, waitlistId, resId, skippedServerIds
     skippedServerIds: skippedServerIds || [],
     prevTablesTotal: srv ? (srv.tablesTotal || 0) - 1 : 0,
     prevLastSeatedAt: srv ? srv.lastSeatedAt : '',
-    prevLastTableId: srv ? (srv.lastTableId || '') : '',
     ts: Date.now(),
   };
   renderUndoBar();
@@ -3050,7 +3094,6 @@ function undoLastSeat() {
   if (srv) {
     srv.tablesTotal = ls.prevTablesTotal;
     srv.lastSeatedAt = ls.prevLastSeatedAt;
-    srv.lastTableId = ls.prevLastTableId;
   }
   // Restore any servers we marked skipped during this seat
   (ls.skippedServerIds || []).forEach(id => {
@@ -3092,10 +3135,15 @@ function undoLastSeat() {
 
 function renderUndoBar() {
   let bar = document.getElementById('undoBar');
-  if (!state.lastSeat && !state.lastAction) {
+  if (!state.lastSeat) {
     if (bar) bar.remove();
     return;
   }
+  const ls = state.lastSeat;
+  const t = state.tables.find(x => x.id === ls.tableId);
+  const srv = getServerById(ls.serverId);
+  const tableLabel = t ? t.label : 'table';
+  const serverName = srv ? srv.name : 'server';
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'undoBar';
@@ -3113,32 +3161,15 @@ function renderUndoBar() {
       if (shiftBar) shiftBar.parentNode.insertBefore(bar, shiftBar.nextSibling);
     }
   }
-  // Seat undo takes precedence if both are somehow set; in practice they are
-  // mutually exclusive because each recorder clears the other slot.
-  if (state.lastSeat) {
-    const ls = state.lastSeat;
-    const t = state.tables.find(x => x.id === ls.tableId);
-    const srv = getServerById(ls.serverId);
-    const tableLabel = t ? t.label : 'table';
-    const serverName = srv ? srv.name : 'server';
-    const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - ls.ts)) / 1000));
-    bar.innerHTML = `
-      <span class="ub-text">Just seated <strong>${escapeHtml(serverName)}</strong> at table <strong>${escapeHtml(tableLabel)}</strong></span>
-      <span class="ub-timer">${secsLeft}s</span>
-      <button class="ub-btn" onclick="undoLastSeat()">Cancel · undo</button>
-    `;
-  } else {
-    const la = state.lastAction;
-    const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - la.ts)) / 1000));
-    bar.innerHTML = `
-      <span class="ub-text">${escapeHtml(la.displayText)}</span>
-      <span class="ub-timer">${secsLeft}s</span>
-      <button class="ub-btn" onclick="undoLastAction()">Undo</button>
-    `;
-  }
+  const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - ls.ts)) / 1000));
+  bar.innerHTML = `
+    <span class="ub-text">Just seated <strong>${escapeHtml(serverName)}</strong> at table <strong>${escapeHtml(tableLabel)}</strong></span>
+    <span class="ub-timer">${secsLeft}s</span>
+    <button class="ub-btn" onclick="undoLastSeat()">Cancel · undo</button>
+  `;
 }
 
-// Re-render undo bar every second to update countdown for whichever slot is set.
+// Re-render undo bar every second to update countdown
 setInterval(() => {
   if (state.lastSeat) {
     const elapsed = Date.now() - state.lastSeat.ts;
@@ -3148,78 +3179,8 @@ setInterval(() => {
     } else {
       renderUndoBar();
     }
-  } else if (state.lastAction) {
-    const elapsed = Date.now() - state.lastAction.ts;
-    if (elapsed > UNDO_WINDOW_MS) {
-      state.lastAction = null;
-      renderUndoBar();
-    } else {
-      renderUndoBar();
-    }
   }
 }, 1000);
-
-// ============================================================
-// UNDO LAST ACTION (generic, snapshot-based)
-// ============================================================
-// Covers Mark open, Move party, Hand off, Walked, and Mark reserved.
-// Each action function takes a snapshot of the relevant state slices BEFORE
-// mutating, via recordAction(). Undo restores those slices wholesale, which
-// automatically reverses rotation/skip credit, server tallies, waitlist/
-// reservation status changes, combo state, and assigned-server changes -
-// since they all live in the captured slices.
-
-// Snapshot the slices that any non-seat action might touch.
-function snapshotForUndo() {
-  return {
-    tables:       JSON.parse(JSON.stringify(state.tables || [])),
-    waitlist:     JSON.parse(JSON.stringify(state.waitlist || [])),
-    reservations: JSON.parse(JSON.stringify(state.reservations || [])),
-    servers:      JSON.parse(JSON.stringify(state.servers || [])),
-  };
-}
-
-// Record a reversible action. Call this BEFORE you start mutating state.
-function recordAction(type, displayText) {
-  // Mutual exclusion: a new action replaces any pending seat-undo too.
-  state.lastSeat = null;
-  state.lastAction = {
-    type,
-    displayText,
-    snapshot: snapshotForUndo(),
-    ts: Date.now(),
-  };
-  renderUndoBar();
-  setTimeout(() => {
-    if (state.lastAction && Date.now() - state.lastAction.ts >= UNDO_WINDOW_MS) {
-      state.lastAction = null;
-      renderUndoBar();
-    }
-  }, UNDO_WINDOW_MS + 100);
-}
-
-function undoLastAction() {
-  const la = state.lastAction;
-  if (!la) return;
-  if (Date.now() - la.ts > UNDO_WINDOW_MS) {
-    toast('Too late to undo');
-    state.lastAction = null;
-    renderUndoBar();
-    return;
-  }
-  // Restore the captured slices wholesale.
-  state.tables       = la.snapshot.tables;
-  state.waitlist     = la.snapshot.waitlist;
-  state.reservations = la.snapshot.reservations;
-  state.servers      = la.snapshot.servers;
-  state.dirty = true;
-  logEvent('action_undone', { type: la.type, label: la.displayText });
-  toast('Undone: ' + la.displayText);
-  state.lastAction = null;
-  pushAll();
-  render();
-  renderUndoBar();
-}
 
 // ============================================================
 // BREAKS
@@ -3385,7 +3346,7 @@ function addTableToPendingCombo(tableId) {
     toast(msg);
     return;
   }
-  push('tables');
+  pushTablesWithSync([primaryId, tableId]);
   const members = getComboMembers(primaryId);
   const primary = members[0];
   setFloorHint(`✓ ${members.length} tables combined (${comboTotalSeats(primaryId)} seats) · tap more to add · <a onclick="finishCombine()" style="text-decoration: underline; cursor: pointer;">Done</a>`);
@@ -3411,9 +3372,11 @@ function cancelCombine() {
 
 function breakComboFromUI(tableId) {
   if (!confirm('Break this combo?\n\nEach table will go back to being a separate table.')) return;
+  // Capture members BEFORE breaking — afterwards the group no longer exists.
+  const affectedIds = getComboMembers(tableId).map(m => m.id);
   breakCombo(tableId);
   state.dirty = true;
-  push('tables');
+  pushTablesWithSync(affectedIds);
   closeModal('tableActionsModal');
   state.pendingTable = null;
   toast('Combo broken');
@@ -3469,9 +3432,6 @@ function confirmMoveToTable(toTableId) {
   const toT = state.tables.find(t => t.id === toTableId);
   if (!fromT || !toT || toT.status !== 'open') return;
 
-  // Record undo snapshot BEFORE any mutation.
-  recordAction('move', `Moved party from table ${fromT.label} to ${toT.label}`);
-
   const oldSrv = getServerForTable(fromId);
   // Update source: open
   const inheritedShift = fromT.seatedAtShift || '';
@@ -3499,11 +3459,11 @@ function confirmMoveToTable(toTableId) {
     markSkipped(oldSrv.id);
   }
   if (isShiftActive() && newSrv) {
-    markSeated(newSrv.id, toTableId); // they now "served" this table
+    markSeated(newSrv.id); // they now "served" this table
   }
 
   state.dirty = true;
-  pushAll();
+  pushAllWithSync([fromId, toTableId]);
   closeModal('moveModal');
   state.pendingMove = null;
   toast('Moved to ' + toT.label);
@@ -3547,10 +3507,6 @@ function confirmHandoff(toServerId) {
     state.pendingHandoff = null;
     return;
   }
-  // Record undo snapshot BEFORE any mutation. (Past the no-op early return,
-  // so an accidental same-server tap doesn't burn the pending undo slot.)
-  recordAction('handoff', `Handed off table ${t.label}${toSrv ? ' to ' + toSrv.name : ''}`);
-
   // If this table is part of a combo, hand off ALL members to the new server
   // so the combo stays unified under one server. (Explicit per-member writes.)
   const handoffMembers = getComboMembers(tableId);
@@ -3588,7 +3544,7 @@ function confirmHandoff(toServerId) {
     toast(newName + ' is covering \u00b7 credit stays with ' + origName);
   }
   state.dirty = true;
-  pushAll();
+  pushAllWithSync(handoffMembers.map(m => m.id));
   closeModal('handoffModal');
   state.pendingHandoff = null;
   render();
@@ -3691,8 +3647,6 @@ function promptWalk(id) {
 function confirmWalk(reason) {
   const w = state.waitlist.find(x => x.id === state.pendingWalkId);
   if (!w) { closeModal('walkModal'); return; }
-  // Record undo snapshot BEFORE any mutation.
-  recordAction('walked', `Marked ${w.name} as walked`);
   w.status = 'walked';
   w.seatedAt = Date.now();
   w.walkReason = reason;
