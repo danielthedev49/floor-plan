@@ -1121,6 +1121,11 @@ const state = {
   managerUnlockedAt: 0,
   // Undo last seat (in-memory only, 60-second window)
   lastSeat: null, // { tableId, serverId, waitlistId, resId, prevTablesTotal, prevLastSeatedAt, ts }
+  // Generic last-action undo for non-seat actions (mark open, move, hand off,
+  // walked, mark reserved). Snapshot-based: captures tables/waitlist/
+  // reservations/servers BEFORE the mutation, restores all four on undo.
+  // Mutually exclusive with lastSeat - whichever is most recent wins.
+  lastAction: null, // { type, displayText, snapshot, ts }
 };
 
 // ============================================================
@@ -2568,6 +2573,16 @@ function setStatus(tableId, status) {
   const t = state.tables.find(x => x.id === tableId);
   if (!t) return;
   const wasSeated = t.status === 'seated';
+  // Record undo snapshot BEFORE any mutation. We only snapshot meaningful
+  // transitions so that no-ops don't clobber a pending undo.
+  const prevStatus = t.status;
+  if (prevStatus === 'seated' && status === 'open') {
+    recordAction('open', `Marked table ${t.label} open`);
+  } else if (prevStatus === 'open' && status === 'reserved') {
+    recordAction('reserve', `Marked table ${t.label} reserved`);
+  } else if (prevStatus === 'reserved' && status === 'open') {
+    recordAction('cancel-reserve', `Canceled reservation on table ${t.label}`);
+  }
   // If this table is part of a combo, the status change applies to ALL members
   // (party leaves together, gets re-marked together). When clearing back to open,
   // we also auto-break the combo so the floor is clean for the next seating.
@@ -2991,6 +3006,9 @@ const UNDO_WINDOW_MS = 60 * 1000; // 60 seconds
 
 // Snapshot state right before applying a seat, so we can undo if needed.
 function recordLastSeat({ tableId, serverId, waitlistId, resId, skippedServerIds }) {
+  // Mutual exclusion: clear any pending generic-action undo so the bar shows
+  // the most recent thing.
+  state.lastAction = null;
   const srv = getServerById(serverId);
   state.lastSeat = {
     tableId,
@@ -3074,15 +3092,10 @@ function undoLastSeat() {
 
 function renderUndoBar() {
   let bar = document.getElementById('undoBar');
-  if (!state.lastSeat) {
+  if (!state.lastSeat && !state.lastAction) {
     if (bar) bar.remove();
     return;
   }
-  const ls = state.lastSeat;
-  const t = state.tables.find(x => x.id === ls.tableId);
-  const srv = getServerById(ls.serverId);
-  const tableLabel = t ? t.label : 'table';
-  const serverName = srv ? srv.name : 'server';
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'undoBar';
@@ -3100,15 +3113,32 @@ function renderUndoBar() {
       if (shiftBar) shiftBar.parentNode.insertBefore(bar, shiftBar.nextSibling);
     }
   }
-  const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - ls.ts)) / 1000));
-  bar.innerHTML = `
-    <span class="ub-text">Just seated <strong>${escapeHtml(serverName)}</strong> at table <strong>${escapeHtml(tableLabel)}</strong></span>
-    <span class="ub-timer">${secsLeft}s</span>
-    <button class="ub-btn" onclick="undoLastSeat()">Cancel · undo</button>
-  `;
+  // Seat undo takes precedence if both are somehow set; in practice they are
+  // mutually exclusive because each recorder clears the other slot.
+  if (state.lastSeat) {
+    const ls = state.lastSeat;
+    const t = state.tables.find(x => x.id === ls.tableId);
+    const srv = getServerById(ls.serverId);
+    const tableLabel = t ? t.label : 'table';
+    const serverName = srv ? srv.name : 'server';
+    const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - ls.ts)) / 1000));
+    bar.innerHTML = `
+      <span class="ub-text">Just seated <strong>${escapeHtml(serverName)}</strong> at table <strong>${escapeHtml(tableLabel)}</strong></span>
+      <span class="ub-timer">${secsLeft}s</span>
+      <button class="ub-btn" onclick="undoLastSeat()">Cancel · undo</button>
+    `;
+  } else {
+    const la = state.lastAction;
+    const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - la.ts)) / 1000));
+    bar.innerHTML = `
+      <span class="ub-text">${escapeHtml(la.displayText)}</span>
+      <span class="ub-timer">${secsLeft}s</span>
+      <button class="ub-btn" onclick="undoLastAction()">Undo</button>
+    `;
+  }
 }
 
-// Re-render undo bar every second to update countdown
+// Re-render undo bar every second to update countdown for whichever slot is set.
 setInterval(() => {
   if (state.lastSeat) {
     const elapsed = Date.now() - state.lastSeat.ts;
@@ -3118,8 +3148,78 @@ setInterval(() => {
     } else {
       renderUndoBar();
     }
+  } else if (state.lastAction) {
+    const elapsed = Date.now() - state.lastAction.ts;
+    if (elapsed > UNDO_WINDOW_MS) {
+      state.lastAction = null;
+      renderUndoBar();
+    } else {
+      renderUndoBar();
+    }
   }
 }, 1000);
+
+// ============================================================
+// UNDO LAST ACTION (generic, snapshot-based)
+// ============================================================
+// Covers Mark open, Move party, Hand off, Walked, and Mark reserved.
+// Each action function takes a snapshot of the relevant state slices BEFORE
+// mutating, via recordAction(). Undo restores those slices wholesale, which
+// automatically reverses rotation/skip credit, server tallies, waitlist/
+// reservation status changes, combo state, and assigned-server changes -
+// since they all live in the captured slices.
+
+// Snapshot the slices that any non-seat action might touch.
+function snapshotForUndo() {
+  return {
+    tables:       JSON.parse(JSON.stringify(state.tables || [])),
+    waitlist:     JSON.parse(JSON.stringify(state.waitlist || [])),
+    reservations: JSON.parse(JSON.stringify(state.reservations || [])),
+    servers:      JSON.parse(JSON.stringify(state.servers || [])),
+  };
+}
+
+// Record a reversible action. Call this BEFORE you start mutating state.
+function recordAction(type, displayText) {
+  // Mutual exclusion: a new action replaces any pending seat-undo too.
+  state.lastSeat = null;
+  state.lastAction = {
+    type,
+    displayText,
+    snapshot: snapshotForUndo(),
+    ts: Date.now(),
+  };
+  renderUndoBar();
+  setTimeout(() => {
+    if (state.lastAction && Date.now() - state.lastAction.ts >= UNDO_WINDOW_MS) {
+      state.lastAction = null;
+      renderUndoBar();
+    }
+  }, UNDO_WINDOW_MS + 100);
+}
+
+function undoLastAction() {
+  const la = state.lastAction;
+  if (!la) return;
+  if (Date.now() - la.ts > UNDO_WINDOW_MS) {
+    toast('Too late to undo');
+    state.lastAction = null;
+    renderUndoBar();
+    return;
+  }
+  // Restore the captured slices wholesale.
+  state.tables       = la.snapshot.tables;
+  state.waitlist     = la.snapshot.waitlist;
+  state.reservations = la.snapshot.reservations;
+  state.servers      = la.snapshot.servers;
+  state.dirty = true;
+  logEvent('action_undone', { type: la.type, label: la.displayText });
+  toast('Undone: ' + la.displayText);
+  state.lastAction = null;
+  pushAll();
+  render();
+  renderUndoBar();
+}
 
 // ============================================================
 // BREAKS
@@ -3369,6 +3469,9 @@ function confirmMoveToTable(toTableId) {
   const toT = state.tables.find(t => t.id === toTableId);
   if (!fromT || !toT || toT.status !== 'open') return;
 
+  // Record undo snapshot BEFORE any mutation.
+  recordAction('move', `Moved party from table ${fromT.label} to ${toT.label}`);
+
   const oldSrv = getServerForTable(fromId);
   // Update source: open
   const inheritedShift = fromT.seatedAtShift || '';
@@ -3444,6 +3547,10 @@ function confirmHandoff(toServerId) {
     state.pendingHandoff = null;
     return;
   }
+  // Record undo snapshot BEFORE any mutation. (Past the no-op early return,
+  // so an accidental same-server tap doesn't burn the pending undo slot.)
+  recordAction('handoff', `Handed off table ${t.label}${toSrv ? ' to ' + toSrv.name : ''}`);
+
   // If this table is part of a combo, hand off ALL members to the new server
   // so the combo stays unified under one server. (Explicit per-member writes.)
   const handoffMembers = getComboMembers(tableId);
@@ -3584,6 +3691,8 @@ function promptWalk(id) {
 function confirmWalk(reason) {
   const w = state.waitlist.find(x => x.id === state.pendingWalkId);
   if (!w) { closeModal('walkModal'); return; }
+  // Record undo snapshot BEFORE any mutation.
+  recordAction('walked', `Marked ${w.name} as walked`);
   w.status = 'walked';
   w.seatedAt = Date.now();
   w.walkReason = reason;
