@@ -1858,14 +1858,16 @@ function sectionBadgeClass(section) {
 // ============================================================
 // Single source of truth for rotation order. No stored rotation state, no
 // _prevRotationIndex, no manual splices. Every render reads this; every action
-// just updates tablesTotal (and lastSeatedAt when seating) and the order falls
-// out automatically on the next read.
+// just updates tablesTotal and the order falls out automatically on the next
+// read.
 //
 // Rules:
 //   1) Skipped servers come first (oldest skip first) — kept as before.
 //   2) Among non-skipped: fewest TOTAL tables this shift wins (asc).
-//   3) Tiebreak: earlier lastSeatedAt wins (i.e. whoever hasn't seated in
-//      longest goes first). Replaces the old section-number tiebreak.
+//   3) Tiebreak: lower section number wins (Section 1 before 2 before 3 ...).
+//      Floaters (no section number) sort last on ties via a 99 sentinel.
+// lastSeatedAt is no longer a rotation input. It's still maintained because
+// the server-detail modal displays "Last seated at HH:MM".
 function getRotation() {
   const active = state.servers.filter(s => s.active && !s.onBreak);
   if (!active.length) return [];
@@ -1875,7 +1877,9 @@ function getRotation() {
     const aTotal = a.tablesTotal || 0;
     const bTotal = b.tablesTotal || 0;
     if (aTotal !== bTotal) return aTotal - bTotal;
-    return (a.lastSeatedAt || 0) - (b.lastSeatedAt || 0);
+    const aSec = parseInt(a.section) || 99;
+    const bSec = parseInt(b.section) || 99;
+    return aSec - bSec;
   });
   return [...skipped, ...rest];
 }
