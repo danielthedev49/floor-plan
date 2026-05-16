@@ -409,6 +409,21 @@
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.7; }
   }
+  /* Move-pending: source stays highlighted, valid destinations (open tables)
+     get a pulsing dashed orange outline so the server's eye is pulled there. */
+  .table-el.move-source {
+    box-shadow: 0 0 0 4px var(--gold), var(--shadow);
+  }
+  .table-el.move-target {
+    outline: 2px dashed var(--accent);
+    outline-offset: 2px;
+    animation: moveTargetPulse 1.2s ease-in-out infinite;
+    cursor: pointer;
+  }
+  @keyframes moveTargetPulse {
+    0%, 100% { outline-color: var(--accent); }
+    50%      { outline-color: rgba(194, 65, 12, 0.35); }
+  }
 
   .table-el .t-label { font-family: 'Fraunces', serif; font-weight: 700; font-size: 18px; line-height: 1; }
 
@@ -1034,40 +1049,11 @@
   </div>
 </div>
 
-<!-- HANDOFF picker -->
-<div class="modal-bg" id="handoffModal">
-  <div class="modal">
-    <h2>Transfer table</h2>
-    <p>Pick whether this transfer moves credit in the rotation, or is just temporary coverage.</p>
-    <div style="display: grid; gap: 6px; margin-top: 8px;">
-      <label style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">
-        <input type="radio" name="handoffCredit" value="transfer" checked style="margin-top: 3px;">
-        <span><strong>Transfer credit to the new server</strong><br><span style="font-size: 12px; color: var(--ink-soft);">The new server gets credit in the rotation. Use this when the wrong section was seated by mistake.</span></span>
-      </label>
-      <label style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">
-        <input type="radio" name="handoffCredit" value="keep" style="margin-top: 3px;">
-        <span><strong>Keep credit with the original server</strong><br><span style="font-size: 12px; color: var(--ink-soft);">Just temporary coverage (bathroom break, drink drop-off). Rotation doesn't change.</span></span>
-      </label>
-    </div>
-    <h3 style="margin: 14px 0 6px; font-size: 14px;">Receiving server:</h3>
-    <div id="handoffServerList" style="display: grid; gap: 6px;"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal('handoffModal')">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<!-- MOVE picker -->
-<div class="modal-bg" id="moveModal">
-  <div class="modal">
-    <h2>Move to another table</h2>
-    <p>The original server keeps their place in the rotation. The new table's server gets the cover.</p>
-    <div class="picker-grid" id="movePicker"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost btn-sm" onclick="closeModal('moveModal')">Cancel</button>
-    </div>
-  </div>
-</div>
+<!-- MOVE and TRANSFER pickers are now inline:
+     - Move picks the destination by tapping the floor (banner replaces
+       "Tap a table to act"; see beginMove / cancelMove / onTableClick).
+     - Transfer swaps the action sheet's body to a server picker
+       (beginHandoff rewrites #tableActionsModalContent in place). -->
 
 <!-- SERVER DETAIL -->
 <div class="modal-bg" id="serverDetailModal">
@@ -1435,30 +1421,37 @@ async function pull() {
       data.events.forEach(entry => {
         if (!entry) return;
         const ev = entry.event || entry.action;
-        if (ev !== 'markOpen' && ev !== 'void') return;
+        const isOpenOrVoid = ev === 'markOpen' || ev === 'void';
+        const isTransfer = ev === 'handoff_transfer' || ev === 'handoff_cover';
+        if (!isOpenOrVoid && !isTransfer) return;
         const d = entry.data || {};
         const evTs = entry.ts || d.ts || 0;
         if (evTs <= (state._lastEventLogTs || 0)) return;
         if (evTs > newestTs) newestTs = evTs;
         if (d.eventId && state._localEventIds.has(d.eventId)) return; // our own echo
-        // Pick which counter + mirror + toast belongs to this event type.
-        const mirror = ev === 'void' ? state.voidEvents : state.markOpenEvents;
-        const counter = ev === 'void' ? state.voidCounts : state.reverseCounts;
-        // Update the local mirror (dedupe by eventId).
-        if (!(d.eventId && mirror.some(e => e.eventId === d.eventId))) {
-          mirror.unshift(d);
-          if (mirror.length > 50) mirror.length = 50;
-        }
-        // Bump the local counter so the badge updates without waiting for
-        // another device's local state to come through (it can't — counters
-        // are local-only, only the event log is shared).
-        if (d.serverId) {
-          counter[d.serverId] = (counter[d.serverId] || 0) + 1;
-        }
-        // Toast the floor so other devices know what just happened.
-        if (typeof toast === 'function') {
-          const verb = ev === 'void' ? 'voided' : 'opened';
-          toast(`${d.serverName || 'A server'} ${verb} Table ${d.tableName || ''}`, 4000);
+        if (isOpenOrVoid) {
+          // Open / Void: bump per-server counter + mirror for the popover.
+          const mirror = ev === 'void' ? state.voidEvents : state.markOpenEvents;
+          const counter = ev === 'void' ? state.voidCounts : state.reverseCounts;
+          if (!(d.eventId && mirror.some(e => e.eventId === d.eventId))) {
+            mirror.unshift(d);
+            if (mirror.length > 50) mirror.length = 50;
+          }
+          if (d.serverId) {
+            counter[d.serverId] = (counter[d.serverId] || 0) + 1;
+          }
+          if (typeof toast === 'function') {
+            const verb = ev === 'void' ? 'voided' : 'opened';
+            toast(`${d.serverName || 'A server'} ${verb} Table ${d.tableName || ''}`, 4000);
+          }
+        } else {
+          // Transfer: no counter to increment (Transfer is not an undo), just
+          // toast so the other floor knows a table changed hands.
+          if (typeof toast === 'function') {
+            const from = d.fromServerName || 'A server';
+            const to = d.toServerName || 'another server';
+            toast(`${from} transferred Table ${d.tableName || ''} to ${to}`, 4000);
+          }
         }
       });
       state._lastEventLogTs = newestTs;
@@ -1740,6 +1733,13 @@ function toast(msg, durationMs) {
 function openModal(id) { document.getElementById(id).classList.add('show'); }
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 function goToView(view) {
+  // If the user leaves the floor while a pending floor-pick flow is in progress
+  // (Move), silently abandon it so they don't get stuck in a phantom mode when
+  // they come back. Pending combine has its own UX guidance, so leave it alone.
+  if (view !== 'floor' && state.pendingMove) {
+    state.pendingMove = null;
+    clearFloorHint();
+  }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
   state.currentView = view;
@@ -2369,6 +2369,18 @@ function renderFloor() {
     // Per-table sync indicator — see pushTablesWithSync / pushAllWithSync.
     if (t._pendingSync) classes.push('syncing');
     if (t._syncError)   classes.push('sync-error');
+    // Move-pending mode: the source stays highlighted; valid destinations
+    // (open tables) get a pulsing dashed outline; any other seated tables
+    // dim to keep the eye on valid targets.
+    if (state.pendingMove) {
+      if (t.id === state.pendingMove.fromTableId) {
+        classes.push('move-source');
+      } else if (t.status === 'open') {
+        classes.push('move-target');
+      } else {
+        classes.push('dim');
+      }
+    }
     // Combo indicator: tables in a combo group get a colored halo + chain badge.
     if (isInCombo(t.id)) {
       classes.push('in-combo');
@@ -2517,8 +2529,14 @@ function onTableClick(tableId) {
   if (_tap && _tap._lockedUntil && Date.now() < _tap._lockedUntil) return;
   // Stamp interaction time so pull() won't fire over the top of us for 2s.
   state.lastInteractionAt = Date.now();
-  // If we're picking a table for moving / handing off / seating from list, route there
-  if (state.pendingMove) { confirmMoveToTable(tableId); return; }
+  // Move flow: the floor itself is the picker. Tapping the source = cancel,
+  // tapping a seated non-source = brief hint, tapping an open table = confirm.
+  if (state.pendingMove) {
+    if (tableId === state.pendingMove.fromTableId) { cancelMove(); return; }
+    if (_tap && _tap.status !== 'open') { toast('Pick an open table'); return; }
+    confirmMoveToTable(tableId);
+    return;
+  }
   if (state.pendingSeat) { confirmSeatAtTable(tableId); return; }
   if (state.pendingCombine) { addTableToPendingCombo(tableId); return; }
   // Otherwise show the actions modal
@@ -3352,13 +3370,13 @@ function executeVoid(tableId) {
 
 // Periodically prune the local-event-id set so it doesn't grow unbounded.
 // Entries older than ~2 minutes are safe to drop — pull() has had plenty of
-// chances to surface their server-side echo by then. Handles both 'mo_' and
-// 'v_' prefixes (markOpen and void event ids).
+// chances to surface their server-side echo by then. Handles 'mo_' (markOpen),
+// 'v_' (void), and 'tr_' (transfer) prefixes.
 setInterval(() => {
   if (!state._localEventIds || !state._localEventIds.size) return;
   const cutoff = Date.now() - 120000;
   state._localEventIds.forEach(id => {
-    const m = /^(?:mo|v)_(\d+)_/.exec(id);
+    const m = /^(?:mo|v|tr)_(\d+)_/.exec(id);
     if (m && parseInt(m[1], 10) < cutoff) state._localEventIds.delete(id);
   });
 }, 60000);
@@ -3618,32 +3636,24 @@ function clearFloorHint() {
 // MOVE & HANDOFF
 // ============================================================
 function beginMove(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
   state.pendingMove = { fromTableId: tableId };
   closeModal('tableActionsModal');
-  // Use moveModal which uses same picker
-  const grid = document.getElementById('movePicker');
-  grid.innerHTML = '';
-  state.tables.forEach(t => {
-    if (t.id === tableId) return;
-    if (t.status !== 'open') return; // can only move to open tables
-    const btn = document.createElement('button');
-    btn.className = 'picker-table';
-    const sec = getSectionForTable(t.id);
-    const srv = getServerForTable(t.id);
-    const secMarker = sec ? `<div class="sec-marker ${sectionBadgeClass(sec)}">${sec === 'floater' ? '★' : sec}</div>` : '';
-    btn.innerHTML = `
-      ${secMarker}
-      ${escapeHtml(t.label)}
-      <span class="ps">${t.seats} seats</span>
-      ${srv ? `<span class="pserver">${escapeHtml(srv.name)}</span>` : ''}
-    `;
-    btn.onclick = () => confirmMoveToTable(t.id);
-    grid.appendChild(btn);
-  });
-  if (!grid.children.length) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--ink-soft);">No open tables to move to.</div>';
-  }
-  openModal('moveModal');
+  state.pendingTable = null;
+  // Banner replaces the floor hint. Servers tap the destination on the floor
+  // they already know rather than scanning an unfamiliar modal grid. The
+  // source table stays highlighted, open tables get a pulsing dashed outline
+  // (see .move-target in CSS), other seated tables dim to keep the eye on
+  // valid destinations.
+  setFloorHint(`<strong>Tap the destination table for Table ${escapeHtml(t.label || '')}</strong> · <a onclick="cancelMove()" style="text-decoration: underline; cursor: pointer;">Cancel</a>`);
+  renderFloor();
+}
+
+function cancelMove() {
+  state.pendingMove = null;
+  clearFloorHint();
+  renderFloor();
 }
 
 function confirmMoveToTable(toTableId) {
@@ -3685,30 +3695,57 @@ function confirmMoveToTable(toTableId) {
 
   state.dirty = true;
   pushAllWithSync([fromId, toTableId]);
-  closeModal('moveModal');
   state.pendingMove = null;
-  toast('Moved to ' + toT.label);
+  clearFloorHint();
+  toast(`Moved Table ${fromT.label} → Table ${toT.label}`);
   render();
 }
 
 function beginHandoff(tableId) {
+  // Instead of opening a separate modal, swap the action sheet's content to
+  // an inline server picker. The user stays in the same modal they just tapped
+  // Transfer from, with a Back link to return to the main action sheet.
   state.pendingHandoff = { tableId };
-  closeModal('tableActionsModal');
-  const list = document.getElementById('handoffServerList');
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
   const fromSrv = getServerForTable(tableId);
-  list.innerHTML = '';
-  state.servers.filter(s => s.active && (!fromSrv || s.id !== fromSrv.id)).forEach(s => {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-ghost';
-    btn.style.justifyContent = 'flex-start';
-    btn.innerHTML = `<strong>${escapeHtml(s.name)}</strong> &nbsp; <span style="opacity: .6; font-family: 'DM Mono', monospace; font-size: 11px;">Section ${s.section} · ${s.tablesOwn || 0} own + ${s.tablesHandoff || 0} handoffs</span>`;
-    btn.onclick = () => confirmHandoff(s.id);
-    list.appendChild(btn);
-  });
-  if (!list.children.length) {
-    list.innerHTML = '<p style="color: var(--ink-soft); font-size: 13px;">No other active servers.</p>';
+  const others = state.servers.filter(s => s.active && (!fromSrv || s.id !== fromSrv.id));
+
+  let html = `<h2>Transfer Table ${escapeHtml(t.label || '')}</h2>`;
+  html += `<p style="font-size: 12px; color: var(--ink-soft);">Currently with ${fromSrv ? escapeHtml(fromSrv.name) : 'no server'}. Tap who's taking it.</p>`;
+  // Credit mode: same two options as before (transfer credit vs cover only).
+  html += `<div style="display: flex; gap: 14px; font-size: 12px; color: var(--ink-soft); margin: 6px 0 12px 0;">
+    <label style="display: flex; align-items: center; gap: 4px;"><input type="radio" name="handoffCredit" value="transfer" checked> Transfer credit</label>
+    <label style="display: flex; align-items: center; gap: 4px;"><input type="radio" name="handoffCredit" value="keep"> Coverage only</label>
+  </div>`;
+  if (others.length) {
+    html += '<div style="display: grid; gap: 6px;">';
+    others.forEach(s => {
+      const tableCount = (s.tablesOwn || 0) + (s.tablesHandoff || 0);
+      const sectionLabel = s.section ? `Section ${escapeHtml(String(s.section))}` : 'No section';
+      html += `<button class="btn btn-ghost" style="justify-content: flex-start; padding: 10px 12px;" onclick="confirmHandoff('${s.id}')">
+        <strong>→ ${escapeHtml(s.name)}</strong>
+        <span style="margin-left: 8px; opacity: .6; font-family: 'DM Mono', monospace; font-size: 11px;">· ${sectionLabel} · ${tableCount} table${tableCount === 1 ? '' : 's'}</span>
+      </button>`;
+    });
+    html += '</div>';
+  } else {
+    html += '<p style="color: var(--ink-soft); font-size: 13px;">No other active servers.</p>';
   }
-  openModal('handoffModal');
+  html += `<div class="modal-actions" style="justify-content: space-between;">
+    <button class="btn btn-ghost btn-sm" onclick="cancelHandoff()">← Back</button>
+    <button class="btn btn-ghost btn-sm" onclick="cancelHandoff(); closeModal('tableActionsModal'); state.pendingTable=null;">Close</button>
+  </div>`;
+  document.getElementById('tableActionsModalContent').innerHTML = html;
+  // (The action sheet stays open — we just swapped its body.)
+}
+
+// Cancel an in-progress Transfer pick: clear pendingHandoff and restore the
+// main action sheet for the originally-tapped table.
+function cancelHandoff() {
+  const tid = state.pendingHandoff && state.pendingHandoff.tableId;
+  state.pendingHandoff = null;
+  if (tid) openTableActions(tid);
 }
 
 function confirmHandoff(toServerId) {
@@ -3724,8 +3761,9 @@ function confirmHandoff(toServerId) {
   const toSrv = getServerById(toServerId);
   // No-op if handing off to the same server.
   if (fromSrv && fromSrv.id === toServerId) {
-    closeModal('handoffModal');
+    closeModal('tableActionsModal');
     state.pendingHandoff = null;
+    state.pendingTable = null;
     return;
   }
   // If this table is part of a combo, hand off ALL members to the new server
@@ -3735,39 +3773,40 @@ function confirmHandoff(toServerId) {
     m.assignedServerId = toServerId;
     m.updated = Date.now();
   });
+  // Cross-device broadcast event id (same pattern as Open / Void). Other
+  // devices will see "{Old} transferred Table {N} to {New}" from pull().
+  const eventId = 'tr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  state._localEventIds.add(eventId);
+  const broadcastPayload = {
+    eventId,
+    tableId,
+    tableName: t.label,
+    fromServerId: fromSrv ? fromSrv.id : '',
+    fromServerName: fromSrv ? fromSrv.name : '',
+    toServerId,
+    toServerName: toSrv ? toSrv.name : '',
+    mode,
+    comboSize: handoffMembers.length,
+    ts: Date.now(),
+  };
   if (mode === 'transfer' && fromSrv && toSrv) {
     // Move one seat-credit from original server to receiving server.
     fromSrv.tablesTotal = Math.max(0, (fromSrv.tablesTotal || 0) - 1);
     toSrv.tablesTotal = (toSrv.tablesTotal || 0) + 1;
     toSrv.lastSeatedAt = Date.now();
     toSrv.skippedAt = null;
-    logEvent('handoff_transfer', {
-      tableId,
-      fromServerId: fromSrv.id,
-      fromServerName: fromSrv.name,
-      toServerId,
-      toServerName: toSrv.name,
-      comboSize: handoffMembers.length,
-    });
-    toast('Credit moved to ' + toSrv.name);
+    logEvent('handoff_transfer', broadcastPayload);
   } else {
     // Coverage only: rotation unchanged.
-    logEvent('handoff_cover', {
-      tableId,
-      fromServerId: fromSrv ? fromSrv.id : null,
-      fromServerName: fromSrv ? fromSrv.name : null,
-      toServerId,
-      toServerName: toSrv ? toSrv.name : null,
-      comboSize: handoffMembers.length,
-    });
-    const newName = toSrv ? toSrv.name : 'server';
-    const origName = fromSrv ? fromSrv.name : 'original server';
-    toast(newName + ' is covering \u00b7 credit stays with ' + origName);
+    logEvent('handoff_cover', broadcastPayload);
   }
+  const newName = toSrv ? toSrv.name : 'server';
+  toast(`Table ${t.label} transferred to ${newName}`);
   state.dirty = true;
   pushAllWithSync(handoffMembers.map(m => m.id));
-  closeModal('handoffModal');
+  closeModal('tableActionsModal');
   state.pendingHandoff = null;
+  state.pendingTable = null;
   render();
 }
 
