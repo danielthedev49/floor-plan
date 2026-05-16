@@ -626,6 +626,17 @@
     position: fixed; inset: 0; background: rgba(26,20,16,.5); backdrop-filter: blur(4px);
     display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px;
   }
+  /* The floor action sheet (tableActionsModal) opts into a transparent backdrop
+     — no blur, no dim — so the host can still read table labels, server names,
+     and the rotation bar while the sheet is open. The .modal card itself still
+     has a solid background + shadow so it remains visually distinct from the
+     floor. Other modals (Settings, Add Table, layout editor, etc.) keep the
+     default blurred dim — they don't need the floor visible underneath. */
+  .modal-bg.transparent {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
   .modal-bg.show { display: flex; }
   .modal {
     background: var(--paper); border-radius: 8px; padding: 22px 24px;
@@ -1006,7 +1017,7 @@
 </div>
 
 <!-- TABLE ACTIONS modal: shown on tap when shift active and table is open / seated -->
-<div class="modal-bg" id="tableActionsModal">
+<div class="modal-bg transparent" id="tableActionsModal">
   <div class="modal" id="tableActionsModalContent">
     <!-- populated dynamically -->
   </div>
