@@ -1418,6 +1418,7 @@ async function pull() {
     // no-op — safe to ship before the backend is updated.
     if (Array.isArray(data.events)) {
       let newestTs = state._lastEventLogTs || 0;
+      let processedAny = false;
       data.events.forEach(entry => {
         if (!entry) return;
         const ev = entry.event || entry.action;
@@ -1428,7 +1429,12 @@ async function pull() {
         const evTs = entry.ts || d.ts || 0;
         if (evTs <= (state._lastEventLogTs || 0)) return;
         if (evTs > newestTs) newestTs = evTs;
-        if (d.eventId && state._localEventIds.has(d.eventId)) return; // our own echo
+        // Per-event dedupe: same Set is used for our own echoes (added at log
+        // time) and for events we've already toasted from remote tabs (added
+        // below). This means even if _lastEventLogTs gets nudged by an
+        // interleaving event, the same eventId is never processed twice.
+        if (d.eventId && state._localEventIds.has(d.eventId)) return;
+        processedAny = true;
         if (isOpenOrVoid) {
           // Open / Void: bump per-server counter + mirror for the popover.
           const mirror = ev === 'void' ? state.voidEvents : state.markOpenEvents;
@@ -1453,8 +1459,18 @@ async function pull() {
             toast(`${from} transferred Table ${d.tableName || ''} to ${to}`, 4000);
           }
         }
+        // Remember this eventId so a subsequent pull (which still includes
+        // this event in the last-50 window) can't re-toast / re-increment.
+        if (d.eventId) state._localEventIds.add(d.eventId);
       });
       state._lastEventLogTs = newestTs;
+      // Force a repaint so any tile-level state that just changed via the data
+      // merge (e.g. assignedServerId after a remote Transfer) is reflected on
+      // screen even if the diff hash below somehow decides nothing changed.
+      if (processedAny) {
+        if (typeof renderFloor === 'function') renderFloor();
+        if (typeof renderShiftBar === 'function') renderShiftBar();
+      }
     }
     // One-time migration: if tables are placed on the old 1600x1000 canvas,
     // scale them down to fit the new portrait canvas. Only runs if needed.
@@ -1721,13 +1737,33 @@ function isLeftoverTable(t) {
   return tableStart && tableStart < currentStart;
 }
 
+// Toasts: queued, not displaced. Earlier implementation just overwrote the
+// element's text and reset the timeout, which silently dropped any toast that
+// arrived in the same JS tick as a previous one — exactly the bug behind the
+// "Tab B updates counts but no toast" report. Now each toast gets its full
+// display window, queued behind any earlier toasts.
 let toastTimer;
+let _toastQueue = [];
+let _toastShowing = false;
 function toast(msg, durationMs) {
+  if (!msg) return;
+  _toastQueue.push({ msg: String(msg), durationMs: durationMs || 1800 });
+  if (!_toastShowing) _drainToastQueue();
+}
+function _drainToastQueue() {
   const el = document.getElementById('toast');
+  if (!el || !_toastQueue.length) { _toastShowing = false; return; }
+  _toastShowing = true;
+  const { msg, durationMs } = _toastQueue.shift();
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), durationMs || 1800);
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show');
+    // Brief gap so consecutive toasts feel like distinct messages and the CSS
+    // fade-out animation can complete.
+    setTimeout(_drainToastQueue, 220);
+  }, durationMs);
 }
 
 function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -1735,10 +1771,21 @@ function closeModal(id) { document.getElementById(id).classList.remove('show'); 
 function goToView(view) {
   // If the user leaves the floor while a pending floor-pick flow is in progress
   // (Move), silently abandon it so they don't get stuck in a phantom mode when
-  // they come back. Pending combine has its own UX guidance, so leave it alone.
+  // they come back. CRITICAL: also call renderFloor() — without it, the tiles
+  // keep their move-target / move-source / dim classes from the prior render,
+  // and the user comes back to a "ghost Move mode" they can't cancel because
+  // the banner is gone.
   if (view !== 'floor' && state.pendingMove) {
     state.pendingMove = null;
     clearFloorHint();
+    if (typeof renderFloor === 'function') renderFloor();
+  }
+  // Also abandon a half-built Transfer pick if the user navigates away — the
+  // inline picker lives inside tableActionsModal so just close it.
+  if (view !== 'floor' && state.pendingHandoff) {
+    state.pendingHandoff = null;
+    closeModal('tableActionsModal');
+    state.pendingTable = null;
   }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
