@@ -187,6 +187,24 @@
     opacity: 1;
     font-weight: 700;
   }
+  /* Void badge: same shape, lower alert threshold (5+) because real voids
+     should be rare. If a server is hitting ⊘ 5 in one shift, the manager
+     should be looking — either they're having a clumsy night, or they're
+     using Void to dodge the ↺ counter. */
+  .server-card .void-badge {
+    font-size: 0.75em;
+    margin-left: 4px;
+    opacity: 0.7;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    color: inherit;
+  }
+  .server-card .void-badge.alert {
+    color: #c93a1f;
+    opacity: 1;
+    font-weight: 700;
+  }
   /* Floating popover for the badge — anchored center, click outside to close. */
   .reverse-popover-backdrop {
     position: fixed; inset: 0; z-index: 200;
@@ -1019,8 +1037,8 @@
 <!-- HANDOFF picker -->
 <div class="modal-bg" id="handoffModal">
   <div class="modal">
-    <h2>Hand off table</h2>
-    <p>Pick whether this handoff transfers credit in the rotation, or is just temporary coverage.</p>
+    <h2>Transfer table</h2>
+    <p>Pick whether this transfer moves credit in the rotation, or is just temporary coverage.</p>
     <div style="display: grid; gap: 6px; margin-top: 8px;">
       <label style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">
         <input type="radio" name="handoffCredit" value="transfer" checked style="margin-top: 3px;">
@@ -1042,7 +1060,7 @@
 <!-- MOVE picker -->
 <div class="modal-bg" id="moveModal">
   <div class="modal">
-    <h2>Move party to another table</h2>
+    <h2>Move to another table</h2>
     <p>The original server keeps their place in the rotation. The new table's server gets the cover.</p>
     <div class="picker-grid" id="movePicker"></div>
     <div class="modal-actions">
@@ -1132,8 +1150,13 @@ const state = {
   managerUnlockedAt: 0,
   // Mark-open accountability — per-server reverse counters for the current shift,
   // event-broadcast bookkeeping so we toast remote markOpens but not our own.
-  reverseCounts: {},          // { [serverId]: number }
-  markOpenEvents: [],         // local mirror of recent markOpen events (for the badge popover)
+  reverseCounts: {},          // { [serverId]: number }  ← ↺ badge
+  markOpenEvents: [],         // local mirror of recent markOpen events (for ↺ popover)
+  // Void accountability — same shape, separate counter so a clumsy night doesn't
+  // get hidden inside the ↺ count and an unethical server can't dodge the ↺
+  // counter by claiming everything is "void".
+  voidCounts: {},             // { [serverId]: number }  ← ⊘ badge
+  voidEvents: [],             // local mirror of recent void events (for ⊘ popover)
   _lastEventLogTs: 0,         // ts of newest event we've already toasted/seen
   _localEventIds: new Set(),  // eventIds we just dispatched ourselves
 };
@@ -1412,28 +1435,30 @@ async function pull() {
       data.events.forEach(entry => {
         if (!entry) return;
         const ev = entry.event || entry.action;
-        if (ev !== 'markOpen') return;
+        if (ev !== 'markOpen' && ev !== 'void') return;
         const d = entry.data || {};
         const evTs = entry.ts || d.ts || 0;
         if (evTs <= (state._lastEventLogTs || 0)) return;
         if (evTs > newestTs) newestTs = evTs;
         if (d.eventId && state._localEventIds.has(d.eventId)) return; // our own echo
+        // Pick which counter + mirror + toast belongs to this event type.
+        const mirror = ev === 'void' ? state.voidEvents : state.markOpenEvents;
+        const counter = ev === 'void' ? state.voidCounts : state.reverseCounts;
         // Update the local mirror (dedupe by eventId).
-        if (d.eventId && state.markOpenEvents.some(e => e.eventId === d.eventId)) {
-          // already mirrored — likely the server-side echo of our own
-        } else {
-          state.markOpenEvents.unshift(d);
-          if (state.markOpenEvents.length > 50) state.markOpenEvents.length = 50;
+        if (!(d.eventId && mirror.some(e => e.eventId === d.eventId))) {
+          mirror.unshift(d);
+          if (mirror.length > 50) mirror.length = 50;
         }
         // Bump the local counter so the badge updates without waiting for
-        // another device's reverseCounts state to come through (it doesn't,
-        // because reverseCounts is local-only).
+        // another device's local state to come through (it can't — counters
+        // are local-only, only the event log is shared).
         if (d.serverId) {
-          state.reverseCounts[d.serverId] = (state.reverseCounts[d.serverId] || 0) + 1;
+          counter[d.serverId] = (counter[d.serverId] || 0) + 1;
         }
-        // Toast the floor so other devices know someone reversed a seat.
+        // Toast the floor so other devices know what just happened.
         if (typeof toast === 'function') {
-          toast(`${d.serverName || 'A server'} marked Table ${d.tableName || ''} open`, 4000);
+          const verb = ev === 'void' ? 'voided' : 'opened';
+          toast(`${d.serverName || 'A server'} ${verb} Table ${d.tableName || ''}`, 4000);
         }
       });
       state._lastEventLogTs = newestTs;
@@ -1456,7 +1481,10 @@ async function pull() {
     const waitHash = JSON.stringify(state.waitlist.map(w => [w.id, w.status, w.name, w.partySize, w.tableId]));
     const resHash  = JSON.stringify(state.reservations.map(r => [r.id, r.status, r.name, r.partySize, r.tableId, r.time, r.date]));
     const srvHash  = JSON.stringify(state.servers.map(s => [s.id, s.active, s.section, s.skippedAt, s.tablesTotal]));
-    const countsHash = JSON.stringify(state.reverseCounts || {});
+    const countsHash = JSON.stringify({
+      r: state.reverseCounts || {},
+      v: state.voidCounts || {}
+    });
     const combined = floorHash + '|' + waitHash + '|' + resHash + '|' + srvHash + '|' + countsHash;
     if (combined !== state._lastSyncHash) {
       state._lastSyncHash = combined;
@@ -1869,6 +1897,14 @@ function renderShiftBar() {
     const badgeClass = count >= 10 ? 'reverse-badge alert' : 'reverse-badge';
     return `<span class="${badgeClass}" data-server-id="${serverId}" onclick="event.stopPropagation(); showReverseDetail('${serverId}')">↺ ${count}</span>`;
   }
+  // Void badge helper — same shape, separate counter (state.voidCounts), lower
+  // alert threshold of 5. Sits to the right of the ↺ badge when both exist.
+  function voidBadgeHtml(serverId) {
+    const count = (state.voidCounts && state.voidCounts[serverId]) || 0;
+    if (count <= 0) return '';
+    const badgeClass = count >= 5 ? 'void-badge alert' : 'void-badge';
+    return `<span class="${badgeClass}" data-server-id="${serverId}" onclick="event.stopPropagation(); showVoidDetail('${serverId}')">⊘ ${count}</span>`;
+  }
 
   // Slim mode: each server shows only [name] [total-tables-count]; next-up gets a small NEXT chip.
   const queueHtml = queue.map((s, idx) => {
@@ -1887,6 +1923,7 @@ function renderShiftBar() {
         ${nextMark}
         <span class="sc-slim-name">${escapeHtml(s.name)}</span>
         ${reverseBadgeHtml(s.id)}
+        ${voidBadgeHtml(s.id)}
         <span class="sc-slim-count">${totalTables}</span>
       </div>
     `;
@@ -1903,6 +1940,7 @@ function renderShiftBar() {
         <span class="sc-slim-next-mark" style="background: var(--gold); color: var(--paper);">☕</span>
         <span class="sc-slim-name">${escapeHtml(s.name)}</span>
         ${reverseBadgeHtml(s.id)}
+        ${voidBadgeHtml(s.id)}
         <span class="sc-slim-count">${totalTables}</span>
       </div>
     `;
@@ -2656,17 +2694,22 @@ function openTableActions(tableId) {
       </p>`;
     }
     html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;">`;
-    const clearLabel = inCombo ? 'Mark open (all tables · party left)' : 'Mark open (party left)';
-    // Routes through executeMarkOpen — the tap is the accountable event. No modal,
-    // no PIN, no confirmation. The reverse-count badge on the rotation bar holds
-    // the server accountable; cross-device toasts hold the floor accountable.
-    html += `<button class="btn btn-primary" style="${inCombo ? 'grid-column: 1 / -1;' : ''}" onclick="executeMarkOpen('${tableId}')">${clearLabel}</button>`;
+    // Standard restaurant vocabulary: Open / Move / Transfer / Void / Close.
+    // "Open" routes through executeMarkOpen — the accountable undo for a real
+    // party who left. "Void" routes through executeVoid — neutral undo for an
+    // accidental seat. Both restore the server's rotation slot identically; they
+    // differ in which counter they increment (↺ vs ⊘) and the cross-device toast.
+    const openLabel = inCombo ? 'Open (all tables)' : 'Open';
+    html += `<button class="btn btn-primary" style="${inCombo ? 'grid-column: 1 / -1;' : ''}" onclick="executeMarkOpen('${tableId}')">${openLabel}</button>`;
     if (!inCombo) {
-      html += `<button class="btn" onclick="beginMove('${tableId}')">Move party</button>`;
+      html += `<button class="btn" onclick="beginMove('${tableId}')">Move</button>`;
     }
     if (isShiftActive() && state.servers.filter(s => s.active).length > 1) {
-      html += `<button class="btn" onclick="beginHandoff('${tableId}')">Hand off to another server</button>`;
+      html += `<button class="btn" onclick="beginHandoff('${tableId}')">Transfer</button>`;
     }
+    // Void: visually muted so a rushed server doesn't reach for it by mistake.
+    // Placed last in the row (before the Close button below) for the same reason.
+    html += `<button class="btn btn-ghost" style="grid-column: 1 / -1;" onclick="executeVoid('${tableId}')">Void</button>`;
     html += `</div>`;
   } else if (status === 'reserved') {
     html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;">`;
@@ -3106,7 +3149,7 @@ function markSkipped(serverId) {
 // SEAT METADATA STAMPING
 // ============================================================
 // Capture, on the table itself, the snapshot needed to restore the server's
-// rotation slot if the host taps "Mark open (party left)". The undo bar was
+// rotation slot if the host taps "Open" (or "Void"). The legacy undo bar was
 // replaced by an inline, accountable Mark-open flow — see executeMarkOpen.
 function stampSeatMetadata(tableId, { serverId, skippedServerIds }) {
   const t = state.tables.find(x => x.id === tableId);
@@ -3206,7 +3249,97 @@ function executeMarkOpen(tableId) {
   logEvent('markOpen', eventRecord);
 
   // 5) Local toast + render + push.
-  toast(`Table ${tableLabel} marked open`);
+  toast(`Table ${tableLabel} opened`);
+  state.dirty = true;
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  renderFloor();
+  renderShiftBar();
+  recomputeServerLoads();
+  pushTablesWithSync(affectedIds);
+  push('servers');
+}
+
+// ============================================================
+// VOID — neutral undo for accidental seats (wrong table / ghost tap)
+// ============================================================
+// Same rotation-restore as Open, but increments a SEPARATE counter (⊘) and uses
+// the 'void' event type so it shows up distinctly on every device. Two reasons
+// for the separate counter:
+//   - ↺ 0 ⊘ 5 flags a server who's having a clumsy night (or who is using Void
+//     to dodge the ↺ counter — either way the manager should look).
+//   - ↺ 3 ⊘ 0 is normal honest service; ↺ 0 ⊘ 0 is a quiet shift.
+// Collapsing them into one number would hide the exact behavior the design
+// is meant to surface.
+function executeVoid(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t || t.status !== 'seated') return;
+  const serverId = t._seatedBy || t.assignedServerId || '';
+  const srv = getServerById(serverId);
+  const serverName = srv ? srv.name : '';
+  const tableLabel = t.label || '';
+  const secondsSinceSeat = Math.round((Date.now() - (t._seatedAt || Date.now())) / 1000);
+
+  const members = getComboMembers(tableId);
+  const affectedIds = members.map(m => m.id);
+
+  // 1) Clear seat state (mirror of executeMarkOpen).
+  members.forEach(m => {
+    m.status = 'open';
+    m.assignedServerId = '';
+    m.seatedAtShift = '';
+    m.updated = Date.now();
+  });
+  if (members.length > 1) breakCombo(tableId);
+
+  // 2) Restore the server's rotation slot — IDENTICAL to Open. Void is neutral,
+  //    not a rotation advantage. The clumsy server doesn't get punished or
+  //    rewarded by the rotation; the ⊘ counter is the only signal.
+  if (srv) {
+    if (typeof t._prevTablesTotal === 'number') {
+      srv.tablesTotal = t._prevTablesTotal;
+    } else {
+      srv.tablesTotal = Math.max(0, (srv.tablesTotal || 0) - 1);
+    }
+    if (t._prevLastSeatedAt !== undefined) srv.lastSeatedAt = t._prevLastSeatedAt;
+  }
+  (t._skippedServerIds || []).forEach(id => {
+    const s = getServerById(id);
+    if (s && s.skippedAt) {
+      s.skippedAt = '';
+      s.skips = Math.max(0, (s.skips || 0) - 1);
+    }
+  });
+
+  delete t._seatedAt;
+  delete t._seatedBy;
+  delete t._prevTablesTotal;
+  delete t._prevLastSeatedAt;
+  delete t._skippedServerIds;
+
+  // 3) Bump the VOID counter — NOT reverseCounts.
+  if (serverId) {
+    state.voidCounts[serverId] = (state.voidCounts[serverId] || 0) + 1;
+  }
+
+  // 4) Log a 'void' event (new event type — does not collide with markOpen).
+  const eventId = 'v_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  state._localEventIds.add(eventId);
+  const eventRecord = {
+    eventId,
+    tableId: t.id,
+    tableName: tableLabel,
+    serverId,
+    serverName,
+    secondsSinceSeat,
+    ts: Date.now(),
+  };
+  state.voidEvents.unshift(eventRecord);
+  if (state.voidEvents.length > 50) state.voidEvents.length = 50;
+  logEvent('void', eventRecord);
+
+  // 5) Local toast + render + push.
+  toast(`Table ${tableLabel} voided`);
   state.dirty = true;
   closeModal('tableActionsModal');
   state.pendingTable = null;
@@ -3219,21 +3352,31 @@ function executeMarkOpen(tableId) {
 
 // Periodically prune the local-event-id set so it doesn't grow unbounded.
 // Entries older than ~2 minutes are safe to drop — pull() has had plenty of
-// chances to surface their server-side echo by then.
+// chances to surface their server-side echo by then. Handles both 'mo_' and
+// 'v_' prefixes (markOpen and void event ids).
 setInterval(() => {
   if (!state._localEventIds || !state._localEventIds.size) return;
   const cutoff = Date.now() - 120000;
   state._localEventIds.forEach(id => {
-    const m = /^mo_(\d+)_/.exec(id);
+    const m = /^(?:mo|v)_(\d+)_/.exec(id);
     if (m && parseInt(m[1], 10) < cutoff) state._localEventIds.delete(id);
   });
 }, 60000);
 
-// Popover triggered by tapping the ↺ N badge on a server card. Lists every
-// Mark-open this server has had in the current shift, with table name + time.
-function showReverseDetail(serverId) {
+// Popover triggered by tapping the ↺ or ⊘ badge on a server card. Renders a
+// single shared popover layout — the only differences between ↺ and ⊘ are
+// which event mirror to read, which counter to summarize, and the glyph in the
+// header. _showAccountabilityDetail unifies the two; thin wrappers preserve
+// the inline onclick names already wired into renderShiftBar.
+function _showAccountabilityDetail(serverId, kind) {
   const srv = getServerById(serverId);
-  const events = (state.markOpenEvents || []).filter(e => e.serverId === serverId);
+  const events = kind === 'void'
+    ? (state.voidEvents || []).filter(e => e.serverId === serverId)
+    : (state.markOpenEvents || []).filter(e => e.serverId === serverId);
+  const count = kind === 'void'
+    ? ((state.voidCounts && state.voidCounts[serverId]) || 0)
+    : ((state.reverseCounts && state.reverseCounts[serverId]) || 0);
+  const glyph = kind === 'void' ? '⊘' : '↺';
   const backdrop = document.createElement('div');
   backdrop.className = 'reverse-popover-backdrop';
   backdrop.addEventListener('click', (e) => {
@@ -3250,13 +3393,15 @@ function showReverseDetail(serverId) {
       `).join('')
     : '<p class="rp-empty">No detail available yet — counter has incremented from another device.</p>';
   pop.innerHTML = `
-    <h3>${escapeHtml(srv ? srv.name : 'Server')} · ↺ ${(state.reverseCounts && state.reverseCounts[serverId]) || 0} this shift</h3>
+    <h3>${escapeHtml(srv ? srv.name : 'Server')} · ${glyph} ${count} this shift</h3>
     ${rows}
     <button class="rp-close" onclick="this.closest('.reverse-popover-backdrop').remove()">Close</button>
   `;
   backdrop.appendChild(pop);
   document.body.appendChild(backdrop);
 }
+function showReverseDetail(serverId) { _showAccountabilityDetail(serverId, 'markOpen'); }
+function showVoidDetail(serverId)    { _showAccountabilityDetail(serverId, 'void'); }
 
 // ============================================================
 // BREAKS
@@ -4030,9 +4175,11 @@ document.getElementById('startShiftBtn').addEventListener('click', () => {
       s.lastSeatedAt = ''; s.skippedAt = ''; s.startedAt = now;
       s.onBreak = false; s.breakStartedAt = ''; s.tablesTotalAtBreak = '';
     });
-    // Reset per-shift Mark-open tracking so reverse counters start at 0 each shift.
+    // Reset per-shift accountability tracking so counters start at 0 each shift.
     state.reverseCounts = {};
     state.markOpenEvents = [];
+    state.voidCounts = {};
+    state.voidEvents = [];
     state._lastEventLogTs = 0;
     state._localEventIds = new Set();
     shiftSet('startedAt', now);
