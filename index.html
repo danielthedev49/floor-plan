@@ -1436,16 +1436,18 @@ async function pull() {
         if (d.eventId && state._localEventIds.has(d.eventId)) return;
         processedAny = true;
         if (isOpenOrVoid) {
-          // Open / Void: bump per-server counter + mirror for the popover.
-          const mirror = ev === 'void' ? state.voidEvents : state.markOpenEvents;
-          const counter = ev === 'void' ? state.voidCounts : state.reverseCounts;
-          if (!(d.eventId && mirror.some(e => e.eventId === d.eventId))) {
-            mirror.unshift(d);
-            if (mirror.length > 50) mirror.length = 50;
+          if (ev === 'void') {
+            // Void = mistake undo. Bump ⊘ counter + mirror for the popover.
+            if (!(d.eventId && state.voidEvents.some(e => e.eventId === d.eventId))) {
+              state.voidEvents.unshift(d);
+              if (state.voidEvents.length > 50) state.voidEvents.length = 50;
+            }
+            if (d.serverId) {
+              state.voidCounts[d.serverId] = (state.voidCounts[d.serverId] || 0) + 1;
+            }
           }
-          if (d.serverId) {
-            counter[d.serverId] = (counter[d.serverId] || 0) + 1;
-          }
+          // 'markOpen' is a clean status change (party left normally) — no
+          // counter changes on the receive side either. Only toast.
           if (typeof toast === 'function') {
             const verb = ev === 'void' ? 'voided' : 'opened';
             toast(`${d.serverName || 'A server'} ${verb} Table ${d.tableName || ''}`, 4000);
@@ -3230,17 +3232,15 @@ function stampSeatMetadata(tableId, { serverId, skippedServerIds }) {
 }
 
 // ============================================================
-// MARK OPEN — accountable undo (no modal, no PIN, no confirmation)
+// OPEN — clean end-of-service status change
 // ============================================================
-// The host tap is the accountable event:
-//   1. Clear the seat (all combo members).
-//   2. Restore the server's rotation slot — undo the tablesTotal increment
-//      and un-skip anyone we marked skipped when we seated them.
-//   3. Bump state.reverseCounts[serverId] so the rotation bar shows ↺ N.
-//   4. Log a markOpen event to the sheet so other devices see it.
-//   5. Toast and re-render.
-// Future extension point: a manager PIN gate could wrap this — left out for now
-// per spec.
+// "Open" = the party finished and left. This is a clean end-of-service status
+// change, NOT an undo. The waiter keeps full credit for the turn:
+//   - tablesTotal is NOT decremented
+//   - the ↺ counter is NOT incremented
+//   - rotation position is NOT restored
+//   - any skips applied at seat time stay applied
+// Use Void instead for accidental seats (see executeVoid below).
 function executeMarkOpen(tableId) {
   const t = state.tables.find(x => x.id === tableId);
   if (!t || t.status !== 'seated') return;
@@ -3254,48 +3254,26 @@ function executeMarkOpen(tableId) {
   const members = getComboMembers(tableId);
   const affectedIds = members.map(m => m.id);
 
-  // 1) Clear all combo members' seat state (mirrors setStatus(open) semantics).
+  // Clean status change on every combo member. No counter changes, no rotation
+  // restore — the seat counted, the turn is over.
   members.forEach(m => {
     m.status = 'open';
     m.assignedServerId = '';
     m.seatedAtShift = '';
     m.updated = Date.now();
+    // Discard the seat-metadata stamp so it doesn't leak into the next seating.
+    // Void would have used these to restore rotation, but Open doesn't need them.
+    delete m._seatedAt;
+    delete m._seatedBy;
+    delete m._prevTablesTotal;
+    delete m._prevLastSeatedAt;
+    delete m._skippedServerIds;
   });
   if (members.length > 1) breakCombo(tableId);
 
-  // 2) Restore the server's rotation slot from the stamped snapshot.
-  //    The dynamic rotation queue keys off tablesTotal + skippedAt, so undoing
-  //    those puts them right back where they were.
-  if (srv) {
-    if (typeof t._prevTablesTotal === 'number') {
-      srv.tablesTotal = t._prevTablesTotal;
-    } else {
-      srv.tablesTotal = Math.max(0, (srv.tablesTotal || 0) - 1);
-    }
-    if (t._prevLastSeatedAt !== undefined) srv.lastSeatedAt = t._prevLastSeatedAt;
-  }
-  // Un-skip any servers we marked skipped when seating this table.
-  (t._skippedServerIds || []).forEach(id => {
-    const s = getServerById(id);
-    if (s && s.skippedAt) {
-      s.skippedAt = '';
-      s.skips = Math.max(0, (s.skips || 0) - 1);
-    }
-  });
-
-  // Strip the stamp now that we've consumed it.
-  delete t._seatedAt;
-  delete t._seatedBy;
-  delete t._prevTablesTotal;
-  delete t._prevLastSeatedAt;
-  delete t._skippedServerIds;
-
-  // 3) Bump per-server reverse counter (badge shows ↺ N on rotation bar).
-  if (serverId) {
-    state.reverseCounts[serverId] = (state.reverseCounts[serverId] || 0) + 1;
-  }
-
-  // 4) Log the event. Use an idempotent eventId so pull() doesn't toast us.
+  // Log the event for cross-device awareness and historical record. Internal
+  // name stays 'markOpen' for compatibility with prior shift logs; the payload
+  // semantics are now "party left normally" rather than "mistake undo".
   const eventId = 'mo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   state._localEventIds.add(eventId);
   const eventRecord = {
@@ -3307,22 +3285,15 @@ function executeMarkOpen(tableId) {
     secondsSinceSeat,
     ts: Date.now(),
   };
-  // Mirror locally so the popover lists this entry immediately, before the
-  // server round-trip lands.
-  state.markOpenEvents.unshift(eventRecord);
-  if (state.markOpenEvents.length > 50) state.markOpenEvents.length = 50;
   logEvent('markOpen', eventRecord);
 
-  // 5) Local toast + render + push.
   toast(`Table ${tableLabel} opened`);
   state.dirty = true;
   closeModal('tableActionsModal');
   state.pendingTable = null;
   renderFloor();
   renderShiftBar();
-  recomputeServerLoads();
   pushTablesWithSync(affectedIds);
-  push('servers');
 }
 
 // ============================================================
