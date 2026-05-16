@@ -1854,35 +1854,42 @@ function sectionBadgeClass(section) {
 }
 
 // ============================================================
-// ROUND ROBIN
+// ROUND ROBIN — derived from counts, not stored
 // ============================================================
-// Returns active servers (not on break) in the order they'd next be seated.
+// Single source of truth for rotation order. No stored rotation state, no
+// _prevRotationIndex, no manual splices. Every render reads this; every action
+// just updates tablesTotal (and lastSeatedAt when seating) and the order falls
+// out automatically on the next read.
+//
 // Rules:
-//   1) Skipped servers come first (oldest skip first).
-//   2) Among non-skipped: fewest TOTAL tables this shift wins (running count, never decrements).
-//   3) Tiebreaker: lower section number wins (Sec 1 → 2 → 3 → 4).
-function rotationQueue() {
+//   1) Skipped servers come first (oldest skip first) — kept as before.
+//   2) Among non-skipped: fewest TOTAL tables this shift wins (asc).
+//   3) Tiebreak: earlier lastSeatedAt wins (i.e. whoever hasn't seated in
+//      longest goes first). Replaces the old section-number tiebreak.
+function getRotation() {
   const active = state.servers.filter(s => s.active && !s.onBreak);
   if (!active.length) return [];
   recomputeServerLoads();
-  const skipped = active.filter(s => s.skippedAt).sort((a,b) => (a.skippedAt||0) - (b.skippedAt||0));
+  const skipped = active.filter(s => s.skippedAt).sort((a, b) => (a.skippedAt || 0) - (b.skippedAt || 0));
   const rest = active.filter(s => !s.skippedAt).sort((a, b) => {
     const aTotal = a.tablesTotal || 0;
     const bTotal = b.tablesTotal || 0;
     if (aTotal !== bTotal) return aTotal - bTotal;
-    const aSec = parseInt(a.section) || 99;
-    const bSec = parseInt(b.section) || 99;
-    return aSec - bSec;
+    return (a.lastSeatedAt || 0) - (b.lastSeatedAt || 0);
   });
   return [...skipped, ...rest];
 }
+// Legacy name retained as a thin alias so the dozens of existing callers
+// (renderShiftBar, confirmSeatAtTable, etc.) keep working unchanged. New code
+// should use getRotation() — same function, clearer name.
+function rotationQueue() { return getRotation(); }
 function nextUpServer() {
-  const q = rotationQueue();
+  const q = getRotation();
   return q[0] || null;
 }
 // Position of a server in the rotation queue (1-indexed). 0 if not in queue.
 function rotationPosition(serverId) {
-  const q = rotationQueue();
+  const q = getRotation();
   const idx = q.findIndex(s => s.id === serverId);
   return idx < 0 ? 0 : idx + 1;
 }
@@ -2881,7 +2888,6 @@ function seatWalkInAtTable(tableId) {
   if (isShiftActive()) {
     if (resolvedServer) {
       markSeated(resolvedServer.id);
-      stampSeatMetadata(primary.id, { serverId: resolvedServer.id, skippedServerIds: [] });
     }
     // (no else — non-floater with no server is a configuration gap, not a skip event)
   }
@@ -3033,8 +3039,6 @@ function applyFloaterSeat(tableId, serverId, forWalkIn) {
   }
   // 2) The chosen server gets credit: clears their own skip, updates lastSeatedAt
   markSeated(serverId);
-  // 3) Stamp seat metadata for accountable Mark-open
-  stampSeatMetadata(tableId, { serverId, skippedServerIds });
 
   state.dirty = true;
   pushAll();
@@ -3175,8 +3179,6 @@ function confirmSeatAtTable(tableId) {
       }
       markSeated(targetSrv.id);
       targetSrv.covers = (targetSrv.covers || 0) + partySize;
-      // Stamp seat metadata for accountable Mark-open
-      stampSeatMetadata(primaryId, { serverId: targetSrv.id, skippedServerIds });
     }
     // (floater case is handled earlier via openFloaterServerPicker — never reaches here)
   }
@@ -3212,24 +3214,12 @@ function markSkipped(serverId) {
   }
 }
 
-// ============================================================
-// SEAT METADATA STAMPING
-// ============================================================
-// Capture, on the table itself, the snapshot needed to restore the server's
-// rotation slot if the host taps "Open" (or "Void"). The legacy undo bar was
-// replaced by an inline, accountable Mark-open flow — see executeMarkOpen.
-function stampSeatMetadata(tableId, { serverId, skippedServerIds }) {
-  const t = state.tables.find(x => x.id === tableId);
-  if (!t) return;
-  const srv = getServerById(serverId);
-  // markSeated() has already incremented tablesTotal by 1, so the pre-seat
-  // value is current - 1. We stamp this so executeMarkOpen can restore it.
-  t._seatedAt = Date.now();
-  t._seatedBy = serverId || '';
-  t._prevTablesTotal = srv ? Math.max(0, (srv.tablesTotal || 0) - 1) : 0;
-  t._prevLastSeatedAt = srv ? (srv.lastSeatedAt || '') : '';
-  t._skippedServerIds = (skippedServerIds || []).slice();
-}
+// Rotation is purely derived from tablesTotal + lastSeatedAt (see getRotation).
+// No seat-metadata stamps live on table objects anymore — Open is a no-op for
+// rotation, Void is a simple -1 to the current owner, and Move/Transfer apply
+// their own delta. The legacy stampSeatMetadata() helper and its _prevTablesTotal
+// / _prevLastSeatedAt / _skippedServerIds / _seatedAt / _seatedBy fields were
+// deleted when the rotation rule was simplified.
 
 // ============================================================
 // OPEN — clean end-of-service status change
@@ -3244,11 +3234,10 @@ function stampSeatMetadata(tableId, { serverId, skippedServerIds }) {
 function executeMarkOpen(tableId) {
   const t = state.tables.find(x => x.id === tableId);
   if (!t || t.status !== 'seated') return;
-  const serverId = t._seatedBy || t.assignedServerId || '';
+  const serverId = t.assignedServerId || '';
   const srv = getServerById(serverId);
   const serverName = srv ? srv.name : '';
   const tableLabel = t.label || '';
-  const secondsSinceSeat = Math.round((Date.now() - (t._seatedAt || Date.now())) / 1000);
 
   // Capture combo members BEFORE we clear — we need to push all of them after.
   const members = getComboMembers(tableId);
@@ -3261,13 +3250,6 @@ function executeMarkOpen(tableId) {
     m.assignedServerId = '';
     m.seatedAtShift = '';
     m.updated = Date.now();
-    // Discard the seat-metadata stamp so it doesn't leak into the next seating.
-    // Void would have used these to restore rotation, but Open doesn't need them.
-    delete m._seatedAt;
-    delete m._seatedBy;
-    delete m._prevTablesTotal;
-    delete m._prevLastSeatedAt;
-    delete m._skippedServerIds;
   });
   if (members.length > 1) breakCombo(tableId);
 
@@ -3282,7 +3264,6 @@ function executeMarkOpen(tableId) {
     tableName: tableLabel,
     serverId,
     serverName,
-    secondsSinceSeat,
     ts: Date.now(),
   };
   logEvent('markOpen', eventRecord);
@@ -3297,29 +3278,25 @@ function executeMarkOpen(tableId) {
 }
 
 // ============================================================
-// VOID — neutral undo for accidental seats (wrong table / ghost tap)
+// VOID — mistake undo for accidental seats
 // ============================================================
-// Same rotation-restore as Open, but increments a SEPARATE counter (⊘) and uses
-// the 'void' event type so it shows up distinctly on every device. Two reasons
-// for the separate counter:
-//   - ↺ 0 ⊘ 5 flags a server who's having a clumsy night (or who is using Void
-//     to dodge the ↺ counter — either way the manager should look).
-//   - ↺ 3 ⊘ 0 is normal honest service; ↺ 0 ⊘ 0 is a quiet shift.
-// Collapsing them into one number would hide the exact behavior the design
-// is meant to surface.
+// Per the rotation rule: Void = -1 to the current owner's tablesTotal,
+// lastSeatedAt unchanged. The ⊘ counter bumps so the floor and manager can
+// see voids accumulating, separate from honest end-of-service Opens.
+// The rotation bar will re-sort itself on the next render — no manual rotation
+// manipulation here.
 function executeVoid(tableId) {
   const t = state.tables.find(x => x.id === tableId);
   if (!t || t.status !== 'seated') return;
-  const serverId = t._seatedBy || t.assignedServerId || '';
+  const serverId = t.assignedServerId || '';
   const srv = getServerById(serverId);
   const serverName = srv ? srv.name : '';
   const tableLabel = t.label || '';
-  const secondsSinceSeat = Math.round((Date.now() - (t._seatedAt || Date.now())) / 1000);
 
   const members = getComboMembers(tableId);
   const affectedIds = members.map(m => m.id);
 
-  // 1) Clear seat state (mirror of executeMarkOpen).
+  // Clear seat state on every combo member.
   members.forEach(m => {
     m.status = 'open';
     m.assignedServerId = '';
@@ -3328,37 +3305,17 @@ function executeVoid(tableId) {
   });
   if (members.length > 1) breakCombo(tableId);
 
-  // 2) Restore the server's rotation slot — IDENTICAL to Open. Void is neutral,
-  //    not a rotation advantage. The clumsy server doesn't get punished or
-  //    rewarded by the rotation; the ⊘ counter is the only signal.
+  // Rotation rule: -1 to the owner. lastSeatedAt stays put.
   if (srv) {
-    if (typeof t._prevTablesTotal === 'number') {
-      srv.tablesTotal = t._prevTablesTotal;
-    } else {
-      srv.tablesTotal = Math.max(0, (srv.tablesTotal || 0) - 1);
-    }
-    if (t._prevLastSeatedAt !== undefined) srv.lastSeatedAt = t._prevLastSeatedAt;
+    srv.tablesTotal = Math.max(0, (srv.tablesTotal || 0) - 1);
   }
-  (t._skippedServerIds || []).forEach(id => {
-    const s = getServerById(id);
-    if (s && s.skippedAt) {
-      s.skippedAt = '';
-      s.skips = Math.max(0, (s.skips || 0) - 1);
-    }
-  });
 
-  delete t._seatedAt;
-  delete t._seatedBy;
-  delete t._prevTablesTotal;
-  delete t._prevLastSeatedAt;
-  delete t._skippedServerIds;
-
-  // 3) Bump the VOID counter — NOT reverseCounts.
+  // Bump ⊘ for accountability.
   if (serverId) {
     state.voidCounts[serverId] = (state.voidCounts[serverId] || 0) + 1;
   }
 
-  // 4) Log a 'void' event (new event type — does not collide with markOpen).
+  // Log + broadcast.
   const eventId = 'v_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   state._localEventIds.add(eventId);
   const eventRecord = {
@@ -3367,21 +3324,18 @@ function executeVoid(tableId) {
     tableName: tableLabel,
     serverId,
     serverName,
-    secondsSinceSeat,
     ts: Date.now(),
   };
   state.voidEvents.unshift(eventRecord);
   if (state.voidEvents.length > 50) state.voidEvents.length = 50;
   logEvent('void', eventRecord);
 
-  // 5) Local toast + render + push.
   toast(`Table ${tableLabel} voided`);
   state.dirty = true;
   closeModal('tableActionsModal');
   state.pendingTable = null;
   renderFloor();
   renderShiftBar();
-  recomputeServerLoads();
   pushTablesWithSync(affectedIds);
   push('servers');
 }
@@ -3701,14 +3655,25 @@ function confirmMoveToTable(toTableId) {
     wl.serverIdAtSeat = newSrv ? newSrv.id : '';
   }
 
-  // ROTATION RULES (guest-initiated move):
-  // - Original server is NOT penalized: put them at front of line (treat as skipped)
-  // - New server gets the cover (their tablesOwn/covers update via recompute)
-  if (isShiftActive() && oldSrv && (!newSrv || newSrv.id !== oldSrv.id)) {
-    markSkipped(oldSrv.id);
-  }
-  if (isShiftActive() && newSrv) {
-    markSeated(newSrv.id); // they now "served" this table
+  // Rotation rule for Move:
+  //   - Same section (oldSrv === newSrv): no count change at all.
+  //   - Cross section: -1 to old, +1 to new, lastSeatedAt = now on new.
+  // No markSkipped, no rotation-position restore. The rotation bar re-derives
+  // from getRotation() on the next render.
+  if (isShiftActive()) {
+    const oldId = oldSrv ? oldSrv.id : '';
+    const newId = newSrv ? newSrv.id : '';
+    if (oldId !== newId) {
+      if (oldSrv) {
+        oldSrv.tablesTotal = Math.max(0, (oldSrv.tablesTotal || 0) - 1);
+      }
+      if (newSrv) {
+        newSrv.tablesTotal = (newSrv.tablesTotal || 0) + 1;
+        newSrv.lastSeatedAt = Date.now();
+        newSrv.skippedAt = '';
+      }
+    }
+    // Same-section: do nothing — counts and rotation stay put.
   }
 
   state.dirty = true;
