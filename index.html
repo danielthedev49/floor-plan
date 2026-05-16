@@ -218,6 +218,61 @@
     color: #fff;
     opacity: 1;
   }
+  /* ----- Rotation-bar animations ---------------------------------------- */
+  /* Chips need position:relative so floating "+1"/"−1" sit inside them.    */
+  /* The FLIP slide animates the chip's own transform; bump animations live */
+  /* on inner number elements so the two don't fight for the transform.    */
+  .server-card { position: relative; }
+  @keyframes scNumberBumpUp {
+    0%   { transform: scale(1); color: inherit; }
+    35%  { transform: scale(1.4); color: var(--accent); }
+    100% { transform: scale(1); color: inherit; }
+  }
+  @keyframes scNumberBumpDown {
+    0%   { transform: scale(1); color: inherit; }
+    35%  { transform: scale(1.4); color: #2563eb; }
+    100% { transform: scale(1); color: inherit; }
+  }
+  .sc-slim-count.sc-bump-up,
+  .void-badge.sc-bump-up,
+  .reverse-badge.sc-bump-up {
+    display: inline-block;
+    animation: scNumberBumpUp 450ms ease;
+  }
+  .sc-slim-count.sc-bump-down,
+  .void-badge.sc-bump-down,
+  .reverse-badge.sc-bump-down {
+    display: inline-block;
+    animation: scNumberBumpDown 450ms ease;
+  }
+  /* Floating "+N" / "−N" that rises from the count and fades. */
+  @keyframes scFloatDelta {
+    0%   { transform: translateY(0);   opacity: 1; }
+    100% { transform: translateY(-22px); opacity: 0; }
+  }
+  .sc-float-delta {
+    position: absolute;
+    top: -6px;
+    right: 6px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    pointer-events: none;
+    animation: scFloatDelta 700ms ease forwards;
+    z-index: 5;
+  }
+  .sc-float-delta.pos { color: var(--accent); }
+  .sc-float-delta.neg { color: #2563eb; }
+  /* When a chip becomes NEXT for the first time, a brief outline ripple
+     calls attention to it. Outline (not box-shadow) so it doesn't conflict
+     with the FLIP transform during the same frame. */
+  @keyframes scNextPulse {
+    0%   { outline: 3px solid rgba(255, 255, 255, 0.9); outline-offset: 0; }
+    100% { outline: 3px solid rgba(255, 255, 255, 0);   outline-offset: 10px; }
+  }
+  .server-card.sc-pulse-new-next {
+    animation: scNextPulse 500ms ease;
+  }
   /* Floating popover for the badge — anchored center, click outside to close. */
   .reverse-popover-backdrop {
     position: fixed; inset: 0; z-index: 200;
@@ -1959,14 +2014,54 @@ function recomputeServerLoads() {
 // ============================================================
 // RENDER — SHIFT BAR (top of Floor)
 // ============================================================
+// Snapshot maps from the previous render. Empty on first render so the very
+// first paint never animates (per spec).
+let _shiftBarLastRects  = new Map();   // serverId -> DOMRect
+let _shiftBarLastCounts = new Map();   // serverId -> { total, voids, reverses }
+let _shiftBarLastNextId = null;        // serverId of whoever was NEXT last time
+
+// Bump animation on a count element (the .sc-slim-count, .void-badge, or
+// .reverse-badge span). delta > 0 = orange tint, delta < 0 = blue tint.
+function animateCountBump(el, delta) {
+  if (!el) return;
+  el.classList.remove('sc-bump-up', 'sc-bump-down');
+  // Force reflow so the next class add restarts the animation.
+  void el.offsetWidth;
+  el.classList.add(delta > 0 ? 'sc-bump-up' : 'sc-bump-down');
+  el.addEventListener('animationend', () => {
+    el.classList.remove('sc-bump-up', 'sc-bump-down');
+  }, { once: true });
+}
+
+// Spawn a "+N" or "−N" that rises from the chip and fades out.
+function spawnFloatingDelta(chipEl, delta) {
+  if (!chipEl || !delta) return;
+  const float = document.createElement('span');
+  float.className = 'sc-float-delta ' + (delta > 0 ? 'pos' : 'neg');
+  float.textContent = (delta > 0 ? '+' : '−') + Math.abs(delta);
+  chipEl.appendChild(float);
+  float.addEventListener('animationend', () => float.remove(), { once: true });
+}
+
 function renderShiftBar() {
   const bar = document.getElementById('shiftBar');
   if (!isShiftActive() || !state.servers.filter(s => s.active).length) {
     bar.classList.add('empty');
     bar.innerHTML = '<div class="empty-msg">No shift active. <a onclick="goToView(\'shift\')">Start a shift →</a></div>';
+    // Drop snapshots — when the shift comes back, the first paint shouldn't animate.
+    _shiftBarLastRects.clear();
+    _shiftBarLastCounts.clear();
+    _shiftBarLastNextId = null;
     return;
   }
   bar.classList.remove('empty');
+  // SNAPSHOT: capture current chip positions BEFORE we re-render so the
+  // FLIP animation has "First" rects to invert against.
+  const oldRects = new Map();
+  bar.querySelectorAll('.server-card').forEach(el => {
+    const id = el.dataset.serverId;
+    if (id) oldRects.set(id, el.getBoundingClientRect());
+  });
   recomputeServerLoads();
   const queue = rotationQueue();
   const onBreakList = state.servers.filter(s => s.active && s.onBreak);
@@ -2003,7 +2098,7 @@ function renderShiftBar() {
       ? `<span class="sc-slim-next-mark">${isSkipped ? 'Skip→Next' : 'Next'}</span>`
       : '';
     return `
-      <div class="${cls.join(' ')}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — ${totalTables} tables seated">
+      <div class="${cls.join(' ')}" data-server-id="${s.id}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — ${totalTables} tables seated">
         ${nextMark}
         <span class="sc-slim-name">${escapeHtml(s.name)}</span>
         ${reverseBadgeHtml(s.id)}
@@ -2020,7 +2115,7 @@ function renderShiftBar() {
     if (state.selectedServerId === s.id) cls.push('selected');
     const totalTables = s.tablesTotal || 0;
     return `
-      <div class="${cls.join(' ')}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — on break">
+      <div class="${cls.join(' ')}" data-server-id="${s.id}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — on break">
         <span class="sc-slim-next-mark" style="background: var(--gold); color: var(--paper);">☕</span>
         <span class="sc-slim-name">${escapeHtml(s.name)}</span>
         ${reverseBadgeHtml(s.id)}
@@ -2031,6 +2126,84 @@ function renderShiftBar() {
   }).join('') : '';
 
   bar.innerHTML = queueHtml + breakHtml;
+
+  // POST-RENDER animations.
+  //   - FLIP slide for chips whose position changed since last render.
+  //   - Bump + tint on count elements whose number changed.
+  //   - Floating "+N" / "−N" for the main tablesTotal change.
+  //   - Pulse on the chip that just became NEXT.
+  // Skip everything if we have no prior snapshot (first paint / shift-resume).
+  const isFirstPaint = _shiftBarLastCounts.size === 0;
+  const nextNowId = queue[0] ? queue[0].id : null;
+
+  bar.querySelectorAll('.server-card').forEach(el => {
+    const id = el.dataset.serverId;
+    if (!id) return;
+
+    // FLIP slide.
+    if (!isFirstPaint) {
+      const oldRect = oldRects.get(id) || _shiftBarLastRects.get(id);
+      if (oldRect) {
+        const newRect = el.getBoundingClientRect();
+        const dx = oldRect.left - newRect.left;
+        const dy = oldRect.top - newRect.top;
+        if (dx !== 0 || dy !== 0) {
+          el.style.transform = `translate(${dx}px, ${dy}px)`;
+          el.style.transition = 'none';
+          requestAnimationFrame(() => {
+            el.style.transition = 'transform 320ms ease';
+            el.style.transform = '';
+          });
+        }
+      }
+    }
+
+    // NEXT pulse — only when the NEXT identity actually changed.
+    if (!isFirstPaint && el.classList.contains('next-up') && _shiftBarLastNextId !== id) {
+      el.classList.add('sc-pulse-new-next');
+      setTimeout(() => el.classList.remove('sc-pulse-new-next'), 600);
+    }
+
+    // Count changes.
+    if (!isFirstPaint) {
+      const prev = _shiftBarLastCounts.get(id);
+      const srv = state.servers.find(s => s.id === id);
+      if (prev && srv) {
+        const curTotal    = srv.tablesTotal || 0;
+        const curVoids    = (state.voidCounts    && state.voidCounts[id])    || 0;
+        const curReverses = (state.reverseCounts && state.reverseCounts[id]) || 0;
+        if (prev.total !== curTotal) {
+          const delta = curTotal - prev.total;
+          animateCountBump(el.querySelector('.sc-slim-count'), delta);
+          spawnFloatingDelta(el, delta);
+        }
+        if (prev.voids !== curVoids) {
+          animateCountBump(el.querySelector('.void-badge'), curVoids - prev.voids);
+        }
+        if (prev.reverses !== curReverses) {
+          animateCountBump(el.querySelector('.reverse-badge'), curReverses - prev.reverses);
+        }
+      }
+    }
+  });
+
+  // Refresh snapshots for next render.
+  _shiftBarLastRects.clear();
+  _shiftBarLastCounts.clear();
+  bar.querySelectorAll('.server-card').forEach(el => {
+    const id = el.dataset.serverId;
+    if (!id) return;
+    _shiftBarLastRects.set(id, el.getBoundingClientRect());
+    const srv = state.servers.find(s => s.id === id);
+    if (srv) {
+      _shiftBarLastCounts.set(id, {
+        total:    srv.tablesTotal || 0,
+        voids:    (state.voidCounts    && state.voidCounts[id])    || 0,
+        reverses: (state.reverseCounts && state.reverseCounts[id]) || 0,
+      });
+    }
+  });
+  _shiftBarLastNextId = nextNowId;
 }
 
 function ordinal(n) {
