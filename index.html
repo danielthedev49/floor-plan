@@ -205,6 +205,19 @@
     opacity: 1;
     font-weight: 700;
   }
+  /* On the NEXT chip the background turns warm orange/brown (var(--accent)),
+     and the default red alert color blends into it and becomes unreadable.
+     Force white on both badges (and both variants) inside .next-up chips so
+     the counts stay legible. Non-NEXT chips keep the red since they sit on a
+     dark background where the contrast is fine. Same override applied to the
+     reverse-badge for symmetry. */
+  .server-card.next-up .void-badge,
+  .server-card.next-up .void-badge.alert,
+  .server-card.next-up .reverse-badge,
+  .server-card.next-up .reverse-badge.alert {
+    color: #fff;
+    opacity: 1;
+  }
   /* Floating popover for the badge — anchored center, click outside to close. */
   .reverse-popover-backdrop {
     position: fixed; inset: 0; z-index: 200;
