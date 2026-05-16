@@ -171,55 +171,58 @@
     margin: 4px 0 4px 8px;
   }
 
-  /* Undo last seat bar — floats on the floor map so it doesn't push tables out of view. */
-  .undo-bar {
-    position: absolute;
-    left: 50%;
-    bottom: 14px;
-    transform: translateX(-50%);
-    z-index: 60;
-    display: flex; align-items: center; gap: 10px;
-    background: rgba(26, 20, 16, 0.94);
-    color: var(--paper);
-    padding: 8px 14px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,.18);
-    font-family: 'Inter Tight', sans-serif; font-size: 13px;
-    box-shadow: 0 6px 18px rgba(0,0,0,.35);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    max-width: calc(100% - 24px);
-    animation: undo-slide-in 0.25s ease-out;
-  }
-  @keyframes undo-slide-in {
-    from { transform: translate(-50%, 30px); opacity: 0; }
-    to   { transform: translate(-50%, 0);    opacity: 1; }
-  }
-  .undo-bar .ub-text {
-    flex: 1 1 auto; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .undo-bar .ub-timer {
-    font-family: 'DM Mono', monospace; font-size: 11px;
-    background: rgba(255,255,255,.14); padding: 2px 7px; border-radius: 999px;
-    letter-spacing: 0.05em;
-    flex-shrink: 0;
-  }
-  .undo-bar .ub-btn {
-    background: var(--accent); color: var(--paper); border: 0;
-    padding: 5px 12px; border-radius: 999px;
-    font-family: 'Inter Tight', sans-serif; font-weight: 600; font-size: 12px;
-    cursor: pointer;
-    transition: background .15s;
-    flex-shrink: 0;
-  }
-  .undo-bar .ub-btn:hover { background: var(--accent-deep); }
-  /* Tighter on phones so it doesn't crowd the floor */
-  @media (max-width: 480px) {
-    .undo-bar { font-size: 12px; padding: 7px 10px; gap: 7px; bottom: 10px; }
-    .undo-bar .ub-btn { padding: 4px 9px; font-size: 11px; }
-  }
   .server-card.selected { outline: 2px solid var(--paper); outline-offset: 2px; }
+  /* Mark-open reverse-count badge: muted gray for 1–9, red bold for 10+. */
+  .server-card .reverse-badge {
+    font-size: 0.75em;
+    margin-left: 6px;
+    opacity: 0.7;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    color: inherit;
+  }
+  .server-card .reverse-badge.alert {
+    color: #c93a1f;
+    opacity: 1;
+    font-weight: 700;
+  }
+  /* Floating popover for the badge — anchored center, click outside to close. */
+  .reverse-popover-backdrop {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(26, 20, 16, 0.45);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .reverse-popover {
+    background: var(--paper); color: var(--ink);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 240px; max-width: 360px;
+    max-height: 70vh; overflow-y: auto;
+    box-shadow: 0 20px 50px rgba(0,0,0,.35);
+    font-family: 'Inter Tight', sans-serif;
+  }
+  .reverse-popover h3 {
+    margin: 0 0 10px 0;
+    font-family: 'Fraunces', serif;
+    font-weight: 700; font-size: 16px;
+  }
+  .reverse-popover .rp-row {
+    display: flex; justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px dotted rgba(26,20,16,.12);
+    font-family: 'DM Mono', monospace; font-size: 12px;
+  }
+  .reverse-popover .rp-row:last-child { border-bottom: 0; }
+  .reverse-popover .rp-empty {
+    color: var(--ink-soft); font-size: 13px;
+  }
+  .reverse-popover .rp-close {
+    margin-top: 10px;
+    background: transparent; border: 0;
+    color: var(--accent); font-weight: 600; cursor: pointer;
+    padding: 4px 0;
+  }
 
   .sc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
   .sc-name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 16px; line-height: 1.1; }
@@ -1127,8 +1130,12 @@ const state = {
   // Manager mode (in-memory only — never persisted across reloads):
   managerUnlocked: false,
   managerUnlockedAt: 0,
-  // Undo last seat (in-memory only, 60-second window)
-  lastSeat: null, // { tableId, serverId, waitlistId, resId, prevTablesTotal, prevLastSeatedAt, ts }
+  // Mark-open accountability — per-server reverse counters for the current shift,
+  // event-broadcast bookkeeping so we toast remote markOpens but not our own.
+  reverseCounts: {},          // { [serverId]: number }
+  markOpenEvents: [],         // local mirror of recent markOpen events (for the badge popover)
+  _lastEventLogTs: 0,         // ts of newest event we've already toasted/seen
+  _localEventIds: new Set(),  // eventIds we just dispatched ourselves
 };
 
 // ============================================================
@@ -1394,6 +1401,43 @@ async function pull() {
     }
     state.lastSyncAt = Date.now();
     setSyncStatus('ok');
+    // Cross-device markOpen broadcast: scan incoming event log for markOpen
+    // events newer than what we've seen, toast each one we didn't originate,
+    // and mirror them into state.markOpenEvents so the badge popover can show
+    // them. Requires the Apps Script side of api('getAll') to return data.events
+    // (an array of {event, data} or {event, data, ts}). If absent, this is a
+    // no-op — safe to ship before the backend is updated.
+    if (Array.isArray(data.events)) {
+      let newestTs = state._lastEventLogTs || 0;
+      data.events.forEach(entry => {
+        if (!entry) return;
+        const ev = entry.event || entry.action;
+        if (ev !== 'markOpen') return;
+        const d = entry.data || {};
+        const evTs = entry.ts || d.ts || 0;
+        if (evTs <= (state._lastEventLogTs || 0)) return;
+        if (evTs > newestTs) newestTs = evTs;
+        if (d.eventId && state._localEventIds.has(d.eventId)) return; // our own echo
+        // Update the local mirror (dedupe by eventId).
+        if (d.eventId && state.markOpenEvents.some(e => e.eventId === d.eventId)) {
+          // already mirrored — likely the server-side echo of our own
+        } else {
+          state.markOpenEvents.unshift(d);
+          if (state.markOpenEvents.length > 50) state.markOpenEvents.length = 50;
+        }
+        // Bump the local counter so the badge updates without waiting for
+        // another device's reverseCounts state to come through (it doesn't,
+        // because reverseCounts is local-only).
+        if (d.serverId) {
+          state.reverseCounts[d.serverId] = (state.reverseCounts[d.serverId] || 0) + 1;
+        }
+        // Toast the floor so other devices know someone reversed a seat.
+        if (typeof toast === 'function') {
+          toast(`${d.serverName || 'A server'} marked Table ${d.tableName || ''} open`, 4000);
+        }
+      });
+      state._lastEventLogTs = newestTs;
+    }
     // One-time migration: if tables are placed on the old 1600x1000 canvas,
     // scale them down to fit the new portrait canvas. Only runs if needed.
     if (!state._migrationChecked) {
@@ -1412,7 +1456,8 @@ async function pull() {
     const waitHash = JSON.stringify(state.waitlist.map(w => [w.id, w.status, w.name, w.partySize, w.tableId]));
     const resHash  = JSON.stringify(state.reservations.map(r => [r.id, r.status, r.name, r.partySize, r.tableId, r.time, r.date]));
     const srvHash  = JSON.stringify(state.servers.map(s => [s.id, s.active, s.section, s.skippedAt, s.tablesTotal]));
-    const combined = floorHash + '|' + waitHash + '|' + resHash + '|' + srvHash;
+    const countsHash = JSON.stringify(state.reverseCounts || {});
+    const combined = floorHash + '|' + waitHash + '|' + resHash + '|' + srvHash + '|' + countsHash;
     if (combined !== state._lastSyncHash) {
       state._lastSyncHash = combined;
       render();
@@ -1656,12 +1701,12 @@ function isLeftoverTable(t) {
 }
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, durationMs) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+  toastTimer = setTimeout(() => el.classList.remove('show'), durationMs || 1800);
 }
 
 function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -1814,6 +1859,17 @@ function renderShiftBar() {
   const queue = rotationQueue();
   const onBreakList = state.servers.filter(s => s.active && s.onBreak);
 
+  // Reverse-count badge helper — appears next to the server's name when they've
+  // had at least one Mark-open this shift. 1–9 is muted gray, 10+ flips to red
+  // bold ("alert"). Clicking the badge opens a popover listing each undo. The
+  // onclick uses stopPropagation so it doesn't toggle the server card selection.
+  function reverseBadgeHtml(serverId) {
+    const count = (state.reverseCounts && state.reverseCounts[serverId]) || 0;
+    if (count <= 0) return '';
+    const badgeClass = count >= 10 ? 'reverse-badge alert' : 'reverse-badge';
+    return `<span class="${badgeClass}" data-server-id="${serverId}" onclick="event.stopPropagation(); showReverseDetail('${serverId}')">↺ ${count}</span>`;
+  }
+
   // Slim mode: each server shows only [name] [total-tables-count]; next-up gets a small NEXT chip.
   const queueHtml = queue.map((s, idx) => {
     const isFirst = idx === 0;
@@ -1830,6 +1886,7 @@ function renderShiftBar() {
       <div class="${cls.join(' ')}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — ${totalTables} tables seated">
         ${nextMark}
         <span class="sc-slim-name">${escapeHtml(s.name)}</span>
+        ${reverseBadgeHtml(s.id)}
         <span class="sc-slim-count">${totalTables}</span>
       </div>
     `;
@@ -1845,6 +1902,7 @@ function renderShiftBar() {
       <div class="${cls.join(' ')}" onclick="onServerCardClick('${s.id}')" title="${escapeHtml(s.name)} — on break">
         <span class="sc-slim-next-mark" style="background: var(--gold); color: var(--paper);">☕</span>
         <span class="sc-slim-name">${escapeHtml(s.name)}</span>
+        ${reverseBadgeHtml(s.id)}
         <span class="sc-slim-count">${totalTables}</span>
       </div>
     `;
@@ -2599,7 +2657,10 @@ function openTableActions(tableId) {
     }
     html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;">`;
     const clearLabel = inCombo ? 'Mark open (all tables · party left)' : 'Mark open (party left)';
-    html += `<button class="btn btn-primary" style="${inCombo ? 'grid-column: 1 / -1;' : ''}" onclick="setStatus('${tableId}', 'open')">${clearLabel}</button>`;
+    // Routes through executeMarkOpen — the tap is the accountable event. No modal,
+    // no PIN, no confirmation. The reverse-count badge on the rotation bar holds
+    // the server accountable; cross-device toasts hold the floor accountable.
+    html += `<button class="btn btn-primary" style="${inCombo ? 'grid-column: 1 / -1;' : ''}" onclick="executeMarkOpen('${tableId}')">${clearLabel}</button>`;
     if (!inCombo) {
       html += `<button class="btn" onclick="beginMove('${tableId}')">Move party</button>`;
     }
@@ -2710,7 +2771,7 @@ function seatWalkInAtTable(tableId) {
   if (isShiftActive()) {
     if (resolvedServer) {
       markSeated(resolvedServer.id);
-      recordLastSeat({ tableId: primary.id, serverId: resolvedServer.id });
+      stampSeatMetadata(primary.id, { serverId: resolvedServer.id, skippedServerIds: [] });
     }
     // (no else — non-floater with no server is a configuration gap, not a skip event)
   }
@@ -2862,8 +2923,8 @@ function applyFloaterSeat(tableId, serverId, forWalkIn) {
   }
   // 2) The chosen server gets credit: clears their own skip, updates lastSeatedAt
   markSeated(serverId);
-  // 3) Record for undo
-  recordLastSeat({ tableId, serverId, waitlistId: undoWaitlistId, resId: undoResId, skippedServerIds });
+  // 3) Stamp seat metadata for accountable Mark-open
+  stampSeatMetadata(tableId, { serverId, skippedServerIds });
 
   state.dirty = true;
   pushAll();
@@ -3004,14 +3065,8 @@ function confirmSeatAtTable(tableId) {
       }
       markSeated(targetSrv.id);
       targetSrv.covers = (targetSrv.covers || 0) + partySize;
-      // Record for undo
-      recordLastSeat({
-        tableId: primaryId,
-        serverId: targetSrv.id,
-        waitlistId: type === 'wait' ? id : '',
-        resId: type === 'res' ? id : '',
-        skippedServerIds,
-      });
+      // Stamp seat metadata for accountable Mark-open
+      stampSeatMetadata(primaryId, { serverId: targetSrv.id, skippedServerIds });
     }
     // (floater case is handled earlier via openFloaterServerPicker — never reaches here)
   }
@@ -3048,139 +3103,160 @@ function markSkipped(serverId) {
 }
 
 // ============================================================
-// UNDO LAST SEAT
+// SEAT METADATA STAMPING
 // ============================================================
-const UNDO_WINDOW_MS = 60 * 1000; // 60 seconds
-
-// Snapshot state right before applying a seat, so we can undo if needed.
-function recordLastSeat({ tableId, serverId, waitlistId, resId, skippedServerIds }) {
+// Capture, on the table itself, the snapshot needed to restore the server's
+// rotation slot if the host taps "Mark open (party left)". The undo bar was
+// replaced by an inline, accountable Mark-open flow — see executeMarkOpen.
+function stampSeatMetadata(tableId, { serverId, skippedServerIds }) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t) return;
   const srv = getServerById(serverId);
-  state.lastSeat = {
-    tableId,
-    serverId,
-    waitlistId: waitlistId || '',
-    resId: resId || '',
-    skippedServerIds: skippedServerIds || [],
-    prevTablesTotal: srv ? (srv.tablesTotal || 0) - 1 : 0,
-    prevLastSeatedAt: srv ? srv.lastSeatedAt : '',
-    ts: Date.now(),
-  };
-  renderUndoBar();
-  // Auto-clear after the window
-  setTimeout(() => {
-    if (state.lastSeat && Date.now() - state.lastSeat.ts >= UNDO_WINDOW_MS) {
-      state.lastSeat = null;
-      renderUndoBar();
-    }
-  }, UNDO_WINDOW_MS + 100);
+  // markSeated() has already incremented tablesTotal by 1, so the pre-seat
+  // value is current - 1. We stamp this so executeMarkOpen can restore it.
+  t._seatedAt = Date.now();
+  t._seatedBy = serverId || '';
+  t._prevTablesTotal = srv ? Math.max(0, (srv.tablesTotal || 0) - 1) : 0;
+  t._prevLastSeatedAt = srv ? (srv.lastSeatedAt || '') : '';
+  t._skippedServerIds = (skippedServerIds || []).slice();
 }
 
-function undoLastSeat() {
-  const ls = state.lastSeat;
-  if (!ls) return;
-  if (Date.now() - ls.ts > UNDO_WINDOW_MS) {
-    toast('Too late to undo'); state.lastSeat = null; renderUndoBar(); return;
-  }
-  // Restore the table to open
-  const t = state.tables.find(x => x.id === ls.tableId);
-  if (t) {
-    t.status = 'open';
-    t.assignedServerId = '';
-    t.seatedAtShift = '';
-    t.updated = Date.now();
-  }
-  // Restore the server's counter
-  const srv = getServerById(ls.serverId);
+// ============================================================
+// MARK OPEN — accountable undo (no modal, no PIN, no confirmation)
+// ============================================================
+// The host tap is the accountable event:
+//   1. Clear the seat (all combo members).
+//   2. Restore the server's rotation slot — undo the tablesTotal increment
+//      and un-skip anyone we marked skipped when we seated them.
+//   3. Bump state.reverseCounts[serverId] so the rotation bar shows ↺ N.
+//   4. Log a markOpen event to the sheet so other devices see it.
+//   5. Toast and re-render.
+// Future extension point: a manager PIN gate could wrap this — left out for now
+// per spec.
+function executeMarkOpen(tableId) {
+  const t = state.tables.find(x => x.id === tableId);
+  if (!t || t.status !== 'seated') return;
+  const serverId = t._seatedBy || t.assignedServerId || '';
+  const srv = getServerById(serverId);
+  const serverName = srv ? srv.name : '';
+  const tableLabel = t.label || '';
+  const secondsSinceSeat = Math.round((Date.now() - (t._seatedAt || Date.now())) / 1000);
+
+  // Capture combo members BEFORE we clear — we need to push all of them after.
+  const members = getComboMembers(tableId);
+  const affectedIds = members.map(m => m.id);
+
+  // 1) Clear all combo members' seat state (mirrors setStatus(open) semantics).
+  members.forEach(m => {
+    m.status = 'open';
+    m.assignedServerId = '';
+    m.seatedAtShift = '';
+    m.updated = Date.now();
+  });
+  if (members.length > 1) breakCombo(tableId);
+
+  // 2) Restore the server's rotation slot from the stamped snapshot.
+  //    The dynamic rotation queue keys off tablesTotal + skippedAt, so undoing
+  //    those puts them right back where they were.
   if (srv) {
-    srv.tablesTotal = ls.prevTablesTotal;
-    srv.lastSeatedAt = ls.prevLastSeatedAt;
+    if (typeof t._prevTablesTotal === 'number') {
+      srv.tablesTotal = t._prevTablesTotal;
+    } else {
+      srv.tablesTotal = Math.max(0, (srv.tablesTotal || 0) - 1);
+    }
+    if (t._prevLastSeatedAt !== undefined) srv.lastSeatedAt = t._prevLastSeatedAt;
   }
-  // Restore any servers we marked skipped during this seat
-  (ls.skippedServerIds || []).forEach(id => {
+  // Un-skip any servers we marked skipped when seating this table.
+  (t._skippedServerIds || []).forEach(id => {
     const s = getServerById(id);
     if (s && s.skippedAt) {
       s.skippedAt = '';
       s.skips = Math.max(0, (s.skips || 0) - 1);
     }
   });
-  // Restore waitlist entry to waiting (so the party comes back)
-  if (ls.waitlistId) {
-    const w = state.waitlist.find(x => x.id === ls.waitlistId);
-    if (w) {
-      w.status = 'waiting';
-      w.seatedAt = '';
-      w.tableId = '';
-      w.serverIdAtSeat = '';
-    }
+
+  // Strip the stamp now that we've consumed it.
+  delete t._seatedAt;
+  delete t._seatedBy;
+  delete t._prevTablesTotal;
+  delete t._prevLastSeatedAt;
+  delete t._skippedServerIds;
+
+  // 3) Bump per-server reverse counter (badge shows ↺ N on rotation bar).
+  if (serverId) {
+    state.reverseCounts[serverId] = (state.reverseCounts[serverId] || 0) + 1;
   }
-  // Restore reservation entry to booked
-  if (ls.resId) {
-    const r = state.reservations.find(x => x.id === ls.resId);
-    if (r) {
-      r.status = 'booked';
-      r.tableId = '';
-    }
-    // Also remove the auto-mirrored waitlist entry if it was a reservation
-    state.waitlist = state.waitlist.filter(w =>
-      !(w.tableId === ls.tableId && w.seatedAt >= ls.ts - 500 && w.seatedAt <= ls.ts + 500)
-    );
-  }
-  logEvent('seat_undone', { tableId: ls.tableId, serverId: ls.serverId, waitlistId: ls.waitlistId, resId: ls.resId });
-  state.lastSeat = null;
-  toast('Seat undone');
-  pushAll();
-  render();
-  renderUndoBar();
+
+  // 4) Log the event. Use an idempotent eventId so pull() doesn't toast us.
+  const eventId = 'mo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  state._localEventIds.add(eventId);
+  const eventRecord = {
+    eventId,
+    tableId: t.id,
+    tableName: tableLabel,
+    serverId,
+    serverName,
+    secondsSinceSeat,
+    ts: Date.now(),
+  };
+  // Mirror locally so the popover lists this entry immediately, before the
+  // server round-trip lands.
+  state.markOpenEvents.unshift(eventRecord);
+  if (state.markOpenEvents.length > 50) state.markOpenEvents.length = 50;
+  logEvent('markOpen', eventRecord);
+
+  // 5) Local toast + render + push.
+  toast(`Table ${tableLabel} marked open`);
+  state.dirty = true;
+  closeModal('tableActionsModal');
+  state.pendingTable = null;
+  renderFloor();
+  renderShiftBar();
+  recomputeServerLoads();
+  pushTablesWithSync(affectedIds);
+  push('servers');
 }
 
-function renderUndoBar() {
-  let bar = document.getElementById('undoBar');
-  if (!state.lastSeat) {
-    if (bar) bar.remove();
-    return;
-  }
-  const ls = state.lastSeat;
-  const t = state.tables.find(x => x.id === ls.tableId);
-  const srv = getServerById(ls.serverId);
-  const tableLabel = t ? t.label : 'table';
-  const serverName = srv ? srv.name : 'server';
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'undoBar';
-    bar.className = 'undo-bar';
-    // Float the undo bar INSIDE the floor map so it doesn't push tables out
-    // of view. The .floor container is position:relative, so absolute children
-    // sit on top of the map.
-    const floor = document.getElementById('floor');
-    if (floor) {
-      floor.appendChild(bar);
-    } else {
-      // Fallback: drop it after the shift bar (old behavior) if the floor
-      // isn't in the DOM yet for some reason.
-      const shiftBar = document.getElementById('shiftBar');
-      if (shiftBar) shiftBar.parentNode.insertBefore(bar, shiftBar.nextSibling);
-    }
-  }
-  const secsLeft = Math.max(0, Math.ceil((UNDO_WINDOW_MS - (Date.now() - ls.ts)) / 1000));
-  bar.innerHTML = `
-    <span class="ub-text">Just seated <strong>${escapeHtml(serverName)}</strong> at table <strong>${escapeHtml(tableLabel)}</strong></span>
-    <span class="ub-timer">${secsLeft}s</span>
-    <button class="ub-btn" onclick="undoLastSeat()">Cancel · undo</button>
-  `;
-}
-
-// Re-render undo bar every second to update countdown
+// Periodically prune the local-event-id set so it doesn't grow unbounded.
+// Entries older than ~2 minutes are safe to drop — pull() has had plenty of
+// chances to surface their server-side echo by then.
 setInterval(() => {
-  if (state.lastSeat) {
-    const elapsed = Date.now() - state.lastSeat.ts;
-    if (elapsed > UNDO_WINDOW_MS) {
-      state.lastSeat = null;
-      renderUndoBar();
-    } else {
-      renderUndoBar();
-    }
-  }
-}, 1000);
+  if (!state._localEventIds || !state._localEventIds.size) return;
+  const cutoff = Date.now() - 120000;
+  state._localEventIds.forEach(id => {
+    const m = /^mo_(\d+)_/.exec(id);
+    if (m && parseInt(m[1], 10) < cutoff) state._localEventIds.delete(id);
+  });
+}, 60000);
+
+// Popover triggered by tapping the ↺ N badge on a server card. Lists every
+// Mark-open this server has had in the current shift, with table name + time.
+function showReverseDetail(serverId) {
+  const srv = getServerById(serverId);
+  const events = (state.markOpenEvents || []).filter(e => e.serverId === serverId);
+  const backdrop = document.createElement('div');
+  backdrop.className = 'reverse-popover-backdrop';
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  const pop = document.createElement('div');
+  pop.className = 'reverse-popover';
+  const rows = events.length
+    ? events.map(e => `
+        <div class="rp-row">
+          <span>Table ${escapeHtml(e.tableName || '')}</span>
+          <span>${fmtTime(e.ts)}</span>
+        </div>
+      `).join('')
+    : '<p class="rp-empty">No detail available yet — counter has incremented from another device.</p>';
+  pop.innerHTML = `
+    <h3>${escapeHtml(srv ? srv.name : 'Server')} · ↺ ${(state.reverseCounts && state.reverseCounts[serverId]) || 0} this shift</h3>
+    ${rows}
+    <button class="rp-close" onclick="this.closest('.reverse-popover-backdrop').remove()">Close</button>
+  `;
+  backdrop.appendChild(pop);
+  document.body.appendChild(backdrop);
+}
 
 // ============================================================
 // BREAKS
@@ -3954,6 +4030,11 @@ document.getElementById('startShiftBtn').addEventListener('click', () => {
       s.lastSeatedAt = ''; s.skippedAt = ''; s.startedAt = now;
       s.onBreak = false; s.breakStartedAt = ''; s.tablesTotalAtBreak = '';
     });
+    // Reset per-shift Mark-open tracking so reverse counters start at 0 each shift.
+    state.reverseCounts = {};
+    state.markOpenEvents = [];
+    state._lastEventLogTs = 0;
+    state._localEventIds = new Set();
     shiftSet('startedAt', now);
     push('tables');
   }
